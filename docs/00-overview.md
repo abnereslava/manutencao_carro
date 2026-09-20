@@ -196,7 +196,9 @@ Portanto, o escopo não inclui:
 
 O aplicativo deverá possuir uma área dedicada às informações do carro.
 
-O cadastro inicial será realizado pelo próprio usuário através da interface.
+O aplicativo já nascerá vinculado ao único veículo do projeto: **Renault Sandero Expression 2012 1.6 8V**.
+
+Não haverá fluxo de cadastro ou criação de veículo. A área **Veículo** servirá para preencher, completar e editar os dados do Sandero já existente no sistema.
 
 Os dados exatos do veículo serão definidos posteriormente.
 
@@ -217,7 +219,7 @@ O sistema deverá estar preparado para armazenar informações como:
 - informações de licenciamento;
 - outras informações relevantes.
 
-Nenhuma informação específica do veículo deverá ser preenchida automaticamente nesta etapa da documentação.
+Nenhuma informação documental ou identificadora específica do veículo deverá ser presumida nesta etapa da documentação.
 
 ---
 
