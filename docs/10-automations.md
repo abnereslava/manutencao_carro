@@ -784,3 +784,58 @@ O sistema não deverá automaticamente:
 Automatizar matemática e consistência.
 Não automatizar fatos físicos que o usuário não confirmou.
 ```
+
+---
+
+# Automações adicionais — Estornos
+
+## Gasto bruto
+
+```text
+grossTotal =
+soma dos effectiveTotal originais
+```
+
+## Total estornado
+
+```text
+refundedTotal =
+soma dos refundedAmount
+```
+
+## Gasto líquido
+
+```text
+netTotal =
+grossTotal - refundedTotal
+```
+
+O resumo principal deverá usar `netTotal`.
+
+## Estorno parcial
+
+Exemplo:
+
+```text
+effectiveTotal = R$ 500
+refundedAmount = R$ 150
+netAmount = R$ 350
+```
+
+## Estorno total
+
+```text
+effectiveTotal = R$ 500
+refundedAmount = R$ 500
+netAmount = R$ 0
+```
+
+Não criar valor negativo.
+
+## Indicador separado
+
+A área financeira deverá poder mostrar:
+
+`Total estornado no período`
+
+sem apagar o valor histórico original dos serviços.
