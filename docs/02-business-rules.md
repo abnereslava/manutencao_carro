@@ -885,3 +885,44 @@ Somente o ciclo correspondente é reiniciado.
 ```
 
 Esse princípio deverá orientar toda implementação posterior.
+
+---
+
+# Regras adicionais — Estornos, odômetro e histórico
+
+## BR-REF-001 — Estorno não altera fato mecânico
+
+Estorno financeiro não desfaz manutenção, instalação, garantia ou resolução de problema.
+
+## BR-REF-002 — Gasto líquido
+
+```text
+gastoLiquido = effectiveTotal - refundedAmount
+```
+
+Para estorno total:
+
+```text
+refundedAmount = effectiveTotal
+gastoLiquido = 0
+```
+
+## BR-REF-003 — Limite de estorno
+
+`refundedAmount` não poderá ser negativo nem superior ao `effectiveTotal`.
+
+## BR-ODO-REG-001 — Odômetro atual monotônico
+
+Novas leituras atuais deverão ser monotonicamente não decrescentes.
+
+Correções devem ocorrer sobre registros históricos existentes, não através de uma nova leitura regressiva.
+
+## BR-HIST-DEL-001 — Rollback seguro
+
+Uma ocorrência histórica que alterou a peça atual somente poderá ser excluída automaticamente quando não possuir dependências posteriores.
+
+Se houver dependências, bloquear e exigir correção explícita do histórico.
+
+## BR-COMP-NA-001 — Componente não aplicável
+
+`notApplicable` é diferente de peça opcional ausente e nunca gera alerta de peça faltando.
