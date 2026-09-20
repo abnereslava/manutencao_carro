@@ -122,6 +122,12 @@ Se a conta autenticada não for autorizada:
 
 Mesma lógica, layout centralizado.
 
+## Primeiro acesso
+
+Após autenticação válida, o usuário deverá ir diretamente ao Dashboard.
+
+Não haverá onboarding nem tela para criar veículo. O Sandero já existirá no contexto da aplicação; seus dados poderão ser completados posteriormente em **Veículo**.
+
 ---
 
 # 5. Tela: Início / Dashboard
@@ -618,6 +624,15 @@ Permitir:
 
 Uma manutenção poderá envolver múltiplas peças.
 
+Ao instalar uma peça, permitir informar:
+
+- condição: Nova, Usada, Recondicionada ou Desconhecida;
+- se a vida útil anterior é conhecida;
+- observação livre sobre o estado inicial;
+- campos técnicos específicos daquele componente, quando existirem.
+
+Se a vida útil anterior for desconhecida, a interface não deverá apresentar uma validade estimada como se fosse conhecida.
+
 ## Seção 3 — Custos
 
 Campos:
@@ -859,6 +874,9 @@ Campo textual do componente.
 - modelo;
 - código;
 - condição na instalação;
+- vida útil anterior conhecida/desconhecida;
+- observação sobre estado inicial;
+- dados técnicos específicos, quando existirem;
 - instalação;
 - remoção/substituição;
 - fornecedor;
