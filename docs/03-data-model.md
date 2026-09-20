@@ -191,6 +191,7 @@ Exemplos:
 - `isOptional`
 - `searchTerms`
 - `defaultMaintenanceHints`
+- `technicalFieldSchema`
 - `sortOrder`
 
 ## Regras
@@ -252,6 +253,9 @@ Representa uma peça específica que esteve ou está instalada no veículo.
 - `model`
 - `partCode`
 - `conditionAtInstall`
+- `priorLifeKnown`
+- `initialConditionNotes`
+- `technicalConditionData`
 - `installDate`
 - `installOdometerKm`
 - `removalDate`
@@ -285,6 +289,10 @@ Representa uma peça específica que esteve ou está instalada no veículo.
 ## Regras
 
 - uma peça pode ser cadastrada sem data ou KM de instalação;
+- `conditionAtInstall` poderá ser `new`, `used`, `reconditioned` ou `unknown`;
+- `priorLifeKnown` indicará se o uso anterior é conhecido;
+- `initialConditionNotes` armazenará observação livre sobre o estado da peça na instalação;
+- `technicalConditionData` armazenará somente campos técnicos definidos pelo `technicalFieldSchema` do componente;
 - campos desconhecidos deverão ser opcionais;
 - peças removidas não fazem parte de estoque;
 - peças substituídas permanecem somente como histórico;
@@ -292,6 +300,34 @@ Representa uma peça específica que esteve ou está instalada no veículo.
 - `removalOccurrenceId` deverá existir quando houver remoção/substituição;
 - `replacedByPartInstanceId` é opcional;
 - `removalDate`, `removalOdometerKm` e `removalReason` são opcionais.
+
+---
+
+# 9A. Dados técnicos específicos por componente
+
+`ComponentDefinition.technicalFieldSchema` deverá definir quais dados técnicos opcionais fazem sentido para aquele componente.
+
+Exemplos conceituais:
+
+```text
+Pneu
+→ treadDepthMm
+
+Disco de freio
+→ thicknessMm
+
+Bateria
+→ initialTestNotes
+```
+
+## Regras
+
+- o schema será hardcoded junto ao catálogo estrutural;
+- o usuário não criará campos técnicos arbitrários pela interface;
+- os valores serão armazenados em `PartInstance.technicalConditionData`;
+- ausência de valor será permitida;
+- esses dados servem como referência histórica;
+- vida útil restante não será inferida quando o histórico anterior for desconhecido.
 
 ---
 
