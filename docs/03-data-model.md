@@ -1120,3 +1120,49 @@ Custos / garantia / observações
 ```
 
 O estado atual deverá ser reconstruível a partir do histórico e das relações persistidas.
+
+---
+
+# Extensões do modelo — Estornos e aplicabilidade
+
+## ExpenseBreakdown / custo efetivo
+
+Adicionar, conforme aplicável:
+
+- `refundStatus`: `none | partial | full`
+- `refundedAmountCents`
+- `refundNotes`
+- `refundedAt`
+- `refundedBy`
+
+Derivados:
+
+- `grossAmountCents`
+- `netAmountCents`
+
+```text
+netAmountCents =
+grossAmountCents - refundedAmountCents
+```
+
+Valores monetários permanecem positivos; o estorno é modelado separadamente.
+
+## ComponentState
+
+O estado deverá suportar conceito equivalente a:
+
+- `installed`
+- `missing`
+- `notApplicable`
+- demais estados definidos no domínio.
+
+`notApplicable` não deverá ser confundido com componente opcional sem peça.
+
+## Conflitos
+
+Entidades editáveis poderão usar:
+
+- `revision`
+- snapshots local/remoto temporários para resolução de conflito
+
+A estrutura exata poderá ser ajustada durante a implementação.
