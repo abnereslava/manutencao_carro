@@ -1194,3 +1194,45 @@ Este documento estabelece os requisitos funcionais, mas depende dos seguintes do
 - critérios de aceite.
 
 Esses documentos deverão detalhar as regras necessárias para implementar os requisitos aqui definidos sem ambiguidade.
+
+---
+
+# Requisitos adicionais — Estornos e casos históricos
+
+## FR-EXP-REF-001 — Estado de estorno
+
+Um gasto deverá poder ser marcado como:
+
+- Normal
+- Parcialmente estornada
+- Estornada
+
+## FR-EXP-REF-002 — Estorno parcial
+
+Em estorno parcial, o usuário deverá informar o valor efetivamente devolvido.
+
+## FR-EXP-REF-003 — Sem despesas negativas
+
+Estornos não deverão ser representados como lançamentos financeiros negativos.
+
+## FR-EXP-REF-004 — Totais
+
+A área financeira deverá calcular separadamente:
+
+- gasto bruto;
+- total estornado;
+- gasto líquido.
+
+O total principal deverá representar o gasto líquido.
+
+## FR-ODO-REG-001 — Nova leitura regressiva
+
+Uma nova leitura atual de odômetro não poderá ser inferior à última leitura válida.
+
+Registros históricos de manutenção poderão conter KM inferior ao atual quando corresponderem ao momento real do evento.
+
+## FR-COMP-NA-001 — Não se aplica
+
+Um componente do catálogo poderá ser marcado como `Não se aplica` para a unidade específica do veículo.
+
+Nesse estado não deverá gerar alerta de peça faltando.
