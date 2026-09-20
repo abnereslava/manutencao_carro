@@ -133,11 +133,13 @@ Outras ações rápidas poderão ser adicionadas posteriormente no documento de 
 
 ---
 
-# 5. Cadastro inicial do veículo
+# 5. Veículo fixo e edição de dados
 
-## FR-VEH-001 — Configuração inicial
+## FR-VEH-001 — Veículo já existente
 
-Na primeira utilização, o sistema deverá permitir cadastrar os dados do veículo.
+A aplicação deverá nascer vinculada ao **Renault Sandero Expression 2012 1.6 8V**.
+
+Não deverá existir fluxo para criar ou cadastrar um veículo.
 
 ## FR-VEH-002 — Veículo único
 
@@ -145,11 +147,11 @@ A versão inicial deverá operar com apenas um veículo.
 
 ## FR-VEH-003 — Dados editáveis
 
-As informações cadastradas do veículo deverão poder ser editadas posteriormente.
+A área Veículo deverá permitir preencher, completar e editar posteriormente os dados do Sandero já existente no sistema.
 
 ## FR-VEH-004 — Dados gerais
 
-O cadastro deverá estar preparado para receber, entre outros:
+A ficha do veículo deverá estar preparada para receber, entre outros:
 
 - fabricante;
 - modelo;
@@ -735,6 +737,55 @@ Mesmo que a peça atinja seu limite previsto, o sistema deverá apenas:
 - marcar como vencida, quando aplicável.
 
 O sistema não deverá assumir que a peça foi substituída ou revisada.
+
+---
+
+# 18A. Condição na instalação e vida útil anterior
+
+## FR-PART-020 — Condição na instalação
+
+Uma peça instalada deverá poder registrar uma das condições:
+
+- Nova
+- Usada
+- Recondicionada
+- Desconhecida
+
+## FR-PART-021 — Vida útil anterior conhecida
+
+O usuário deverá poder indicar se a vida útil anterior da peça é conhecida.
+
+## FR-PART-022 — Observação inicial livre
+
+O usuário deverá poder registrar em texto livre o estado conhecido da peça no momento da instalação.
+
+Exemplos:
+
+- "Pneu meia-vida, desgaste uniforme."
+- "Alternador recondicionado; vendedor informou troca de rolamentos."
+- "Peça usada, origem conhecida, mas quilometragem anterior desconhecida."
+
+## FR-PART-023 — Sem validade inventada
+
+Quando a vida útil anterior for desconhecida, o sistema não deverá estimar automaticamente a vida útil restante da peça.
+
+O usuário poderá, entretanto, criar planos explícitos de:
+
+- inspeção;
+- manutenção;
+- substituição.
+
+## FR-PART-024 — Campos técnicos específicos
+
+O catálogo hardcoded poderá definir campos técnicos opcionais específicos conforme o componente.
+
+Exemplos:
+
+- pneu: profundidade do sulco;
+- disco de freio: espessura;
+- bateria: observação ou resultado de teste inicial.
+
+Campos específicos não deverão aparecer para componentes aos quais não se aplicam.
 
 ---
 
