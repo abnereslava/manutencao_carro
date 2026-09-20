@@ -556,6 +556,35 @@ A lista final de componentes, posições e classificações deverá ser validada
 
 ---
 
+# 19A. Peças usadas, recondicionadas e de histórico incompleto
+
+## BR-COND-001 — Condição não define vida restante
+
+A condição informada na instalação — Nova, Usada, Recondicionada ou Desconhecida — não deverá, sozinha, determinar a vida útil restante.
+
+## BR-COND-002 — Vida anterior desconhecida
+
+Quando o uso anterior da peça for desconhecido, o sistema não deverá inventar:
+
+- quilometragem anterior;
+- idade anterior;
+- percentual de vida restante;
+- data provável de substituição.
+
+## BR-COND-003 — Recorrência somente explícita
+
+Uma peça de histórico incompleto somente deverá receber vencimentos automáticos quando houver uma regra explicitamente definida pelo usuário ou pelo plano de manutenção aplicável.
+
+## BR-COND-004 — Inspeção como alternativa
+
+Quando a vida restante não puder ser determinada, o usuário poderá acompanhar a peça através de inspeções periódicas sem que isso implique substituição automática.
+
+## BR-COND-005 — Dados técnicos iniciais
+
+Medições ou observações técnicas feitas no momento da instalação poderão servir como referência histórica, mas não deverão ser convertidas automaticamente em vida útil restante sem uma regra definida.
+
+---
+
 # 20. Garantias
 
 ## BR-WAR-001 — Garantia por tempo
