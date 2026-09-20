@@ -1357,3 +1357,52 @@ As telas principais serão:
 16. Configurações
 
 A experiência deverá permanecer funcionalmente equivalente entre desktop e mobile, adaptando apenas a forma de apresentação e interação.
+
+---
+
+# Complemento de telas — Estornos
+
+## Gastos / detalhe financeiro
+
+Quando houver estorno, exibir tag:
+
+- Parcialmente estornada
+- Estornada
+
+Mostrar:
+
+- valor original;
+- valor estornado;
+- impacto líquido.
+
+## Registrar estorno
+
+Ação contextual em `⋮`:
+
+`Registrar estorno`
+
+Campos:
+
+- Tipo: Total / Parcial
+- Valor estornado — obrigatório no parcial
+- Observação — opcional
+
+No total, o sistema poderá preencher automaticamente o valor efetivo integral.
+
+## Resumo financeiro
+
+Quando houver estornos no período, mostrar:
+
+- Gasto bruto
+- Total estornado
+- Gasto líquido
+
+O destaque principal deverá ser Gasto líquido.
+
+## Componente
+
+Disponibilizar estado:
+
+`Não se aplica`
+
+com confirmação quando a alteração afetar alertas ou estado atual.
