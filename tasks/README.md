@@ -2,6 +2,14 @@
 
 Este diretório transforma o SDD em unidades executáveis de trabalho.
 
+## Auditoria de conformidade com o SDD
+
+Antes de considerar a V1 concluída, ler obrigatoriamente [docs/14-sdd-implementation-gaps.md](../docs/14-sdd-implementation-gaps.md).
+
+Esse documento registra GAPs encontrados entre o SDD aprovado e a implementação atual. Os GAPs devem ser tratados como trabalho pendente, mesmo quando a task original tiver sido considerada concluída anteriormente.
+
+Se um GAP não couber claramente em uma task existente, criar uma nova task em `tasks/`, documentar dependências, escopo e critérios de aceite e adicionar a nova task a este índice. Não omitir um GAP por falta de task preexistente.
+
 ## Como usar
 
 1. Executar as tasks na ordem das dependências, não apenas pelo número.
