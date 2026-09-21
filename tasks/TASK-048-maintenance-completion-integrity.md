@@ -1,8 +1,8 @@
 # TASK-048 — Completar fluxo e integridade da conclusão de manutenção
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
-**GAPs:** GAP-001, GAP-002, GAP-008, GAP-011, GAP-028
+**GAPs:** GAP-001, GAP-002, GAP-008
 
 ## Objetivo
 
@@ -28,11 +28,12 @@ Transformar a conclusão de manutenção em um fluxo completo, validado e sem cl
 - [x] Data, KM retroativo, prestador e observações
 - [x] Custos de peças, mão de obra e outros separados
 - [x] Total calculado e override manual explícito
-- [ ] Múltiplas ações de peças na mesma ocorrência
-- [ ] Garantia opcional vinculada à ocorrência
+- [x] Múltiplas ações de peças na mesma ocorrência
+- [x] Garantia opcional vinculada à ocorrência
 - [x] Prévia do próximo ciclo antes da confirmação
 - [x] Loading e bloqueio de submit duplicado
-- [ ] Persistência coerente de ocorrência, plano, peças, garantia e alertas
+- [x] Persistência coerente de ocorrência, plano, peças, garantia e alertas
+- [x] Migrar a conclusão do modal para uma página dedicada
 
 ## Critérios de aceite
 
@@ -40,4 +41,4 @@ Transformar a conclusão de manutenção em um fluxo completo, validado e sem cl
 - [x] Total nunca é inferido integralmente como mão de obra
 - [x] Próximo ciclo usa data e KM reais
 - [x] Falha de persistência não produz mensagem de sucesso
-- [ ] Testes de domínio, integração e E2E relevantes passam
+- [x] Testes de domínio, integração e E2E relevantes passam

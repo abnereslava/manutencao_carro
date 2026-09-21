@@ -139,6 +139,41 @@ export interface PartAction {
   observations?: string;
 }
 
+export interface MaintenancePartActionInput {
+  componentDefinitionId: string;
+  action: PartAction['action'];
+  observations?: string;
+  newPart?: {
+    name: string;
+    brand?: string;
+    model?: string;
+    partCode?: string;
+    conditionAtInstall: PartInstance['conditionAtInstall'];
+    priorLifeKnown: boolean;
+    initialConditionNotes?: string;
+    purchasePriceCents?: number;
+  };
+}
+
+export interface MaintenanceWarrantyInput {
+  endDate?: ISODate;
+  endOdometerKm?: number;
+  provider?: string;
+  terms?: string;
+  documentUrl?: string;
+  observations: string;
+}
+
+export interface MaintenanceCompletionInput {
+  performedDate: ISODate;
+  odometerKm: number;
+  workshopOrProvider?: string;
+  observations: string;
+  expense: ExpenseBreakdown;
+  partActions: MaintenancePartActionInput[];
+  warranty?: MaintenanceWarrantyInput;
+}
+
 export interface Issue extends AuditMetadata {
   id: string;
   title: string;

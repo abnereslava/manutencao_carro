@@ -1360,6 +1360,10 @@ main {
   border-radius: 11px;
   background: var(--color-accent-soft);
 }
+.completion-page-card {
+  max-width: 980px;
+  margin: 0 auto;
+}
 .completion-preview span {
   color: var(--color-text-secondary);
   font-size: 12px;
@@ -1367,6 +1371,48 @@ main {
 .completion-totals {
   margin-top: 18px;
   margin-bottom: 0;
+}
+.completion-subsection {
+  display: grid;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+.completion-subsection-heading,
+.part-action-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.completion-subsection-heading h3,
+.completion-subsection-heading p {
+  margin: 0;
+}
+.completion-subsection-heading p,
+.part-action-empty,
+.part-action-context {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.part-action-editor {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: var(--color-surface);
+}
+.part-action-title .button {
+  min-height: 36px;
+}
+.part-action-context {
+  margin: -4px 0 0;
+}
+.warranty-section {
+  margin-top: 18px;
+}
+.warranty-fields {
+  margin-top: 4px;
 }
 .not-found-card {
   padding: 40px;

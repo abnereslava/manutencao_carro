@@ -10,21 +10,29 @@ import {
   type ReactNode
 } from 'react';
 import { Skeleton } from '../../components/ui';
-import { SANDERO_COMPONENTS } from '../../catalog/components/sandero';
+import { getComponent, SANDERO_COMPONENTS } from '../../catalog/components/sandero';
 import { getInitializedDataStore } from '../../data/firebase/config';
-import { createRepositories } from '../../data/repositories/firestoreRepositories';
+import {
+  createRepositories,
+  saveMaintenanceCompletion
+} from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
 import { deriveAlerts, mergeAlertState } from '../../domain/alerts';
 import { calculateMaintenanceStatus, nextCycle } from '../../domain/maintenance';
 import { getCurrentOdometer, validateOdometerReading } from '../../domain/odometer';
+import { installPart, removePart } from '../../domain/parts';
 import { todayISO, uid } from '../../lib/format';
 import {
   SCHEMA_VERSION,
   type AppData,
   type DocumentRecord,
+  type MaintenanceCompletionInput,
   type MaintenanceOccurrence,
   type MaintenancePlan,
   type OdometerRecord,
+  type PartAction,
+  type PartInstance,
+  type Warranty,
   type Vehicle
 } from '../../types/domain';
 import { useAuth } from './AuthProvider';
@@ -53,17 +61,7 @@ interface DataContextValue {
       initialPerformedKm?: number;
     }
   ) => void;
-  completeMaintenance: (
-    id: string,
-    input: {
-      performedDate: string;
-      odometerKm: number;
-      workshopOrProvider?: string;
-      observations: string;
-      expense: NonNullable<MaintenanceOccurrence['expense']>;
-      partActions: MaintenanceOccurrence['partActions'];
-    }
-  ) => Promise<void>;
+  completeMaintenance: (id: string, input: MaintenanceCompletionInput) => Promise<void>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => void;
@@ -332,12 +330,129 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const current = data;
     const plan = current.maintenancePlans.find((item) => item.id === id);
     if (!plan) throw new Error('Plano de manutenção não encontrado.');
-    if (!user?.demo && !repositories.current)
+    if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para concluir esta manutenção.');
+    if (input.warranty) {
+      if (!input.warranty.endDate && input.warranty.endOdometerKm === undefined)
+        throw new Error('A garantia precisa de um vencimento por data, KM ou ambos.');
+      if (input.warranty.endDate && input.warranty.endDate < input.performedDate)
+        throw new Error('A garantia não pode vencer antes da realização do serviço.');
+      if (
+        input.warranty.endOdometerKm !== undefined &&
+        input.warranty.endOdometerKm < input.odometerKm
+      )
+        throw new Error('A garantia não pode vencer antes do KM da realização.');
+    }
+
+    const occurrenceId = uid('occ');
+    let parts = [...current.parts];
+    let componentStates = [...current.componentStates];
+    const changedParts = new Map<string, PartInstance>();
+    const changedStates = new Map<string, AppData['componentStates'][number]>();
+    const occurrencePartActions: PartAction[] = [];
+
+    const replacePart = (value: PartInstance) => {
+      changedParts.set(value.id, value);
+      parts = parts.some((item) => item.id === value.id)
+        ? parts.map((item) => (item.id === value.id ? value : item))
+        : [value, ...parts];
+    };
+    const replaceState = (value: AppData['componentStates'][number]) => {
+      changedStates.set(value.id, value);
+      componentStates = componentStates.map((item) => (item.id === value.id ? value : item));
+    };
+
+    input.partActions.forEach((actionInput) => {
+      const component = getComponent(actionInput.componentDefinitionId);
+      const state = componentStates.find(
+        (item) => item.componentDefinitionId === actionInput.componentDefinitionId
+      );
+      if (!component || !state) throw new Error('Componente da ação de peça não encontrado.');
+      const currentPart = parts.find((item) => item.id === state.currentPartInstanceId);
+      let actionPartId = currentPart?.id;
+
+      if (actionInput.action === 'installed' || actionInput.action === 'replaced') {
+        if (!actionInput.newPart?.name.trim())
+          throw new Error('Informe o nome da nova peça instalada.');
+        if (actionInput.action === 'installed' && currentPart)
+          throw new Error(`Use “Substituir” para ${component.name}, que já possui uma peça.`);
+        if (actionInput.action === 'replaced' && !currentPart)
+          throw new Error(`Não há peça atual em ${component.name} para substituir.`);
+
+        const newPart: PartInstance = {
+          ...audit(),
+          id: uid('part'),
+          componentDefinitionId: component.id,
+          name: actionInput.newPart.name.trim(),
+          brand: actionInput.newPart.brand?.trim() || undefined,
+          model: actionInput.newPart.model?.trim() || undefined,
+          partCode: actionInput.newPart.partCode?.trim() || undefined,
+          conditionAtInstall: actionInput.newPart.conditionAtInstall,
+          priorLifeKnown: actionInput.newPart.priorLifeKnown,
+          initialConditionNotes: actionInput.newPart.initialConditionNotes?.trim() || undefined,
+          technicalConditionData: {},
+          installDate: input.performedDate,
+          installOdometerKm: input.odometerKm,
+          status: 'installed',
+          purchasePriceCents: actionInput.newPart.purchasePriceCents,
+          observations: actionInput.observations?.trim() ?? '',
+          installationOccurrenceId: occurrenceId
+        };
+
+        if (currentPart) {
+          replacePart({
+            ...currentPart,
+            status: 'replaced',
+            removalDate: input.performedDate,
+            removalOdometerKm: input.odometerKm,
+            removalReason: actionInput.observations?.trim() || undefined,
+            replacedByPartInstanceId: newPart.id,
+            removalOccurrenceId: occurrenceId,
+            revision: currentPart.revision + 1,
+            updatedAt: new Date().toISOString(),
+            updatedBy: user?.email ?? 'local'
+          });
+        }
+        replacePart(newPart);
+        replaceState({
+          ...installPart(state, newPart),
+          updatedBy: user?.email ?? 'local'
+        });
+        actionPartId = newPart.id;
+      } else if (actionInput.action === 'removed') {
+        if (!currentPart)
+          throw new Error(`Não há peça instalada em ${component.name} para remover.`);
+        replacePart({
+          ...currentPart,
+          status: 'removed_discarded',
+          removalDate: input.performedDate,
+          removalOdometerKm: input.odometerKm,
+          removalReason: actionInput.observations?.trim() || undefined,
+          removalOccurrenceId: occurrenceId,
+          revision: currentPart.revision + 1,
+          updatedAt: new Date().toISOString(),
+          updatedBy: user?.email ?? 'local'
+        });
+        replaceState({
+          ...removePart(state, component).state,
+          updatedBy: user?.email ?? 'local'
+        });
+      } else if (!currentPart) {
+        throw new Error(`Não há peça instalada em ${component.name} para registrar esta ação.`);
+      }
+
+      occurrencePartActions.push({
+        id: uid('part-action'),
+        componentDefinitionId: component.id,
+        partInstanceId: actionPartId,
+        action: actionInput.action,
+        observations: actionInput.observations?.trim() || undefined
+      });
+    });
 
     const occurrence: MaintenanceOccurrence = {
       ...audit(),
-      id: uid('occ'),
+      id: occurrenceId,
       maintenancePlanId: id,
       performedDate: input.performedDate,
       odometerKm: input.odometerKm,
@@ -345,7 +460,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       workshopOrProvider: input.workshopOrProvider,
       observations: input.observations,
       expense: input.expense,
-      partActions: input.partActions
+      partActions: occurrencePartActions
     };
     const cycle = nextCycle(plan, input.odometerKm, input.performedDate);
     const updatedPlan: MaintenancePlan = {
@@ -358,21 +473,44 @@ export function DataProvider({ children }: { children: ReactNode }) {
       updatedBy: user?.email ?? 'local'
     };
 
-    if (repositories.current) {
-      await Promise.all([
-        repositories.current.maintenanceOccurrences.save(occurrence),
-        repositories.current.maintenancePlans.save(updatedPlan)
-      ]);
-    }
+    const warranty: Warranty | undefined = input.warranty
+      ? {
+          ...audit(),
+          id: uid('warranty'),
+          type: 'service',
+          maintenanceOccurrenceId: occurrence.id,
+          startDate: input.performedDate,
+          startOdometerKm: input.odometerKm,
+          endDate: input.warranty.endDate,
+          endOdometerKm: input.warranty.endOdometerKm,
+          provider: input.warranty.provider?.trim() || input.workshopOrProvider,
+          terms: input.warranty.terms?.trim() || undefined,
+          documentUrl: input.warranty.documentUrl?.trim() || undefined,
+          observations: input.warranty.observations.trim()
+        }
+      : undefined;
 
     const base = {
       ...current,
+      parts,
+      componentStates,
       occurrences: [occurrence, ...current.occurrences],
+      warranties: warranty ? [warranty, ...current.warranties] : current.warranties,
       maintenancePlans: current.maintenancePlans.map((item) =>
         item.id === id ? updatedPlan : item
       )
     };
     const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    if (database.current) {
+      await saveMaintenanceCompletion(database.current, {
+        occurrence,
+        plan: updatedPlan,
+        parts: [...changedParts.values()],
+        componentStates: [...changedStates.values()],
+        warranty,
+        alerts: next.alerts
+      });
+    }
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };

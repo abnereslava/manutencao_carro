@@ -10,6 +10,7 @@ import {
   query,
   setDoc,
   startAfter,
+  writeBatch,
   type DocumentSnapshot,
   type Firestore,
   type QueryConstraint
@@ -71,6 +72,35 @@ export class FirestoreRepository<T extends { id: string }> implements Repository
   }
 }
 const vehiclePath = `vehicles/${ACTIVE_VEHICLE_ID}`;
+
+export interface MaintenanceCompletionWrite {
+  occurrence: MaintenanceOccurrence;
+  plan: MaintenancePlan;
+  parts: PartInstance[];
+  componentStates: ComponentState[];
+  warranty?: Warranty;
+  alerts: AlertItem[];
+}
+
+export async function saveMaintenanceCompletion(
+  db: Firestore,
+  input: MaintenanceCompletionWrite
+): Promise<void> {
+  const batch = writeBatch(db);
+  const setValue = <T extends { id: string }>(path: string, value: T) => {
+    const reference = doc(collection(db, path).withConverter(createConverter<T>()), value.id);
+    batch.set(reference, value);
+  };
+
+  setValue(`${vehiclePath}/maintenanceOccurrences`, input.occurrence);
+  setValue(`${vehiclePath}/maintenancePlans`, input.plan);
+  input.parts.forEach((part) => setValue(`${vehiclePath}/parts`, part));
+  input.componentStates.forEach((state) => setValue(`${vehiclePath}/componentStates`, state));
+  if (input.warranty) setValue(`${vehiclePath}/warranties`, input.warranty);
+  input.alerts.forEach((alert) => setValue(`${vehiclePath}/alertStates`, alert));
+  await batch.commit();
+}
+
 export const createRepositories = (db: Firestore) => ({
   vehicles: new FirestoreRepository<Vehicle>(db, 'vehicles'),
   odometer: new FirestoreRepository<OdometerRecord>(

@@ -2,7 +2,7 @@
 
 **Status:** TODO
 
-**GAPs:** GAP-009, GAP-019
+**GAPs:** GAP-009, GAP-019, GAP-028
 
 ## Objetivo
 

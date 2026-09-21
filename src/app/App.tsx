@@ -24,6 +24,11 @@ const MaintenanceDetailPage = lazy(() =>
     default: m.MaintenanceDetailPage
   }))
 );
+const CompleteMaintenancePage = lazy(() =>
+  import('../features/maintenance/CompleteMaintenancePage').then((m) => ({
+    default: m.CompleteMaintenancePage
+  }))
+);
 const PartsPage = lazy(() =>
   import('../features/parts/PartsPage').then((m) => ({ default: m.PartsPage }))
 );
@@ -79,6 +84,7 @@ export function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/maintenance" element={<MaintenancePage />} />
               <Route path="/maintenance/new" element={<NewMaintenancePage />} />
+              <Route path="/maintenance/:id/complete" element={<CompleteMaintenancePage />} />
               <Route path="/maintenance/:id" element={<MaintenanceDetailPage />} />
               <Route path="/parts" element={<PartsPage />} />
               <Route path="/parts/:id" element={<PartDetailPage />} />

@@ -2,7 +2,7 @@
 
 **Status:** TODO
 
-**GAPs:** GAP-014, GAP-015
+**GAPs:** GAP-011, GAP-014, GAP-015
 
 ## Objetivo
 
@@ -16,6 +16,7 @@ Permitir corrigir e excluir leituras históricas, com data opcional e recomposi�
 
 ## Entregas
 
+- Recorrência temporal em dias, meses ou anos na UI
 - Editar e excluir leituras com confirmação
 - Data opcional usando o dia atual quando vazia
 - Recalcular KM atual, manutenções, garantias e alertas
