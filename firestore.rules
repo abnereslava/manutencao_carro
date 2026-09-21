@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAllowedUser() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == "google.com"
+        && request.auth.token.email in [
+          "abner.eslava@gmail.com",
+          "mariner.eslava@gmail.com"
+        ];
+    }
+
+    match /appSettings/{document=**} {
+      allow read, write: if isAllowedUser();
+    }
+
+    match /vehicles/sandero {
+      allow read, write: if isAllowedUser();
+    }
+
+    match /vehicles/sandero/{document=**} {
+      allow read, write: if isAllowedUser();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
