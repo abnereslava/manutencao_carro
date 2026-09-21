@@ -6,6 +6,7 @@ import { SANDERO_COMPONENTS } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Button, Card, Input, Select, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
+import { nextCycle } from '../../domain/maintenance';
 import { useDraft } from '../../hooks/useDraft';
 
 interface MaintenanceDraft {
@@ -14,6 +15,8 @@ interface MaintenanceDraft {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   recurrenceType: 'none' | 'km' | 'time' | 'km_or_time';
   componentDefinitionId: string;
+  initialPerformedKm: string;
+  initialPerformedDate: string;
   intervalKm: string;
   intervalMonths: string;
   nextDueKm: string;
@@ -21,12 +24,15 @@ interface MaintenanceDraft {
   description: string;
   observations: string;
 }
+
 const initial: MaintenanceDraft = {
   title: '',
   type: 'preventive_recurring',
   priority: 'medium',
   recurrenceType: 'km_or_time',
   componentDefinitionId: '',
+  initialPerformedKm: '',
+  initialPerformedDate: '',
   intervalKm: '',
   intervalMonths: '',
   nextDueKm: '',
@@ -40,36 +46,91 @@ export function NewMaintenancePage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { value, setValue, status, clear } = useDraft('new-maintenance', initial);
-  const [error, setError] = useState('');
+  const [titleError, setTitleError] = useState('');
+  const [cycleError, setCycleError] = useState('');
+
   const field = (key: keyof MaintenanceDraft) => ({
     value: value[key],
     onChange: (
       event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-    ) => setValue({ ...value, [key]: event.target.value })
+    ) => {
+      setCycleError('');
+      setValue({ ...value, [key]: event.target.value });
+    }
   });
+
+  const isRecurring = value.recurrenceType !== 'none';
+  const usesKm = value.recurrenceType === 'km' || value.recurrenceType === 'km_or_time';
+  const usesTime = value.recurrenceType === 'time' || value.recurrenceType === 'km_or_time';
+  const hasCycleBase = value.initialPerformedKm !== '' && value.initialPerformedDate !== '';
+
+  const calculatedCycle =
+    isRecurring && hasCycleBase
+      ? nextCycle(
+          {
+            recurrenceType: value.recurrenceType,
+            intervalKm: value.intervalKm ? Number(value.intervalKm) : undefined,
+            intervalMonths: value.intervalMonths ? Number(value.intervalMonths) : undefined
+          },
+          Number(value.initialPerformedKm),
+          value.initialPerformedDate
+        )
+      : {};
+
+  const calculatedNextDueKm =
+    calculatedCycle.nextDueKm !== undefined ? String(calculatedCycle.nextDueKm) : '';
+  const calculatedNextDueDate = calculatedCycle.nextDueDate ?? '';
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    setTitleError('');
+    setCycleError('');
+
     if (!value.title.trim()) {
-      setError('Dê um nome para a manutenção.');
+      setTitleError('Dê um nome para a manutenção.');
       return;
     }
+
+    if (isRecurring && !hasCycleBase) {
+      setCycleError('Informe a data e a quilometragem da última realização.');
+      return;
+    }
+
+    if (usesKm && !value.intervalKm) {
+      setCycleError('Informe o intervalo em KM para calcular o próximo limite.');
+      return;
+    }
+
+    if (usesTime && !value.intervalMonths) {
+      setCycleError('Informe o intervalo em meses para calcular a próxima data.');
+      return;
+    }
+
     saveMaintenance({
       title: value.title,
       type: value.type,
       priority: value.priority,
       recurrenceType: value.recurrenceType,
       componentDefinitionId: value.componentDefinitionId || undefined,
-      intervalKm: value.intervalKm ? Number(value.intervalKm) : undefined,
-      intervalMonths: value.intervalMonths ? Number(value.intervalMonths) : undefined,
-      nextDueKm: value.nextDueKm ? Number(value.nextDueKm) : undefined,
-      nextDueDate: value.nextDueDate || undefined,
+      initialPerformedKm: isRecurring ? Number(value.initialPerformedKm) : undefined,
+      initialPerformedDate: isRecurring ? value.initialPerformedDate : undefined,
+      intervalKm: usesKm ? Number(value.intervalKm) : undefined,
+      intervalMonths: usesTime ? Number(value.intervalMonths) : undefined,
+      nextDueKm: isRecurring
+        ? calculatedCycle.nextDueKm
+        : value.nextDueKm
+          ? Number(value.nextDueKm)
+          : undefined,
+      nextDueDate: isRecurring ? calculatedCycle.nextDueDate : value.nextDueDate || undefined,
       description: value.description,
       observations: value.observations
     });
+
     clear();
     toast('Plano de manutenção criado.');
     navigate('/maintenance');
   };
+
   return (
     <>
       <PageHeader
@@ -94,7 +155,7 @@ export function NewMaintenancePage() {
                 label="Título"
                 required
                 placeholder="Ex.: Troca de óleo e filtro"
-                error={error}
+                error={titleError}
                 {...field('title')}
               />
               <Select label="Tipo" {...field('type')}>
@@ -120,9 +181,13 @@ export function NewMaintenancePage() {
               <Textarea className="full" label="Descrição" {...field('description')} />
             </div>
           </div>
+
           <div className="form-section">
             <h2>Prazo e recorrência</h2>
-            <p>Se os dois limites forem usados, vence no primeiro que for atingido.</p>
+            <p>
+              Em planos recorrentes, informe quando o serviço foi realmente realizado. O próximo
+              limite é calculado automaticamente a partir dessa base.
+            </p>
             <div className="form-grid">
               <Select label="Recorrência" {...field('recurrenceType')}>
                 <option value="none">Não recorrente</option>
@@ -131,21 +196,95 @@ export function NewMaintenancePage() {
                 <option value="km_or_time">KM ou tempo</option>
               </Select>
               <span />
-              <Input label="Intervalo em KM" type="number" min="1" {...field('intervalKm')} />
-              <Input
-                label="Intervalo em meses"
-                type="number"
-                min="1"
-                {...field('intervalMonths')}
-              />
-              <Input label="Próximo limite em KM" type="number" min="0" {...field('nextDueKm')} />
-              <Input label="Próxima data" type="date" {...field('nextDueDate')} />
+
+              {isRecurring ? (
+                <>
+                  <Input
+                    label="KM da última realização"
+                    type="number"
+                    min="0"
+                    required
+                    error={cycleError && value.initialPerformedKm === '' ? cycleError : undefined}
+                    {...field('initialPerformedKm')}
+                  />
+                  <Input
+                    label="Data da última realização"
+                    type="date"
+                    required
+                    error={cycleError && value.initialPerformedDate === '' ? cycleError : undefined}
+                    {...field('initialPerformedDate')}
+                  />
+
+                  {usesKm ? (
+                    <Input
+                      label="Intervalo em KM"
+                      type="number"
+                      min="1"
+                      required
+                      error={cycleError && !value.intervalKm ? cycleError : undefined}
+                      {...field('intervalKm')}
+                    />
+                  ) : (
+                    <span />
+                  )}
+
+                  {usesTime ? (
+                    <Input
+                      label="Intervalo em meses"
+                      type="number"
+                      min="1"
+                      required
+                      error={cycleError && !value.intervalMonths ? cycleError : undefined}
+                      {...field('intervalMonths')}
+                    />
+                  ) : (
+                    <span />
+                  )}
+
+                  {usesKm ? (
+                    <Input
+                      label="Próximo limite em KM"
+                      type="number"
+                      value={calculatedNextDueKm}
+                      readOnly
+                      placeholder="Calculado automaticamente"
+                      hint="KM da última realização + intervalo em KM"
+                    />
+                  ) : (
+                    <span />
+                  )}
+
+                  {usesTime ? (
+                    <Input
+                      label="Próxima data"
+                      type="date"
+                      value={calculatedNextDueDate}
+                      readOnly
+                      hint="Data da última realização + intervalo"
+                    />
+                  ) : (
+                    <span />
+                  )}
+                </>
+              ) : (
+                <>
+                  <Input
+                    label="Próximo limite em KM"
+                    type="number"
+                    min="0"
+                    {...field('nextDueKm')}
+                  />
+                  <Input label="Próxima data" type="date" {...field('nextDueDate')} />
+                </>
+              )}
             </div>
           </div>
+
           <div className="form-section">
             <h2>Observações</h2>
             <Textarea label="Anotações adicionais" {...field('observations')} />
           </div>
+
           <footer className="sticky-form-actions">
             <span className={`draft-status ${status}`}>
               {status === 'saving'
