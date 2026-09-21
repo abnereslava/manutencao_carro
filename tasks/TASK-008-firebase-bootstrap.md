@@ -4,7 +4,7 @@
 
 ## Objetivo
 
-Adicionar infraestrutura Firebase sem incluir segredos.
+Integrar ao código o projeto Firebase **já existente** `appcarro-d3c92`, sem criar outro projeto e sem incluir credenciais administrativas.
 
 ## Dependências
 
@@ -15,12 +15,19 @@ Adicionar infraestrutura Firebase sem incluir segredos.
 
 - `docs/11-technical-architecture.md`
 
+## Estado externo já concluído
+
+- Projeto Firebase criado: `appcarro-d3c92`
+- Web App criada
+- Cloud Firestore criado
+- `.env.example`, `.firebaserc`, `firebase.json`, `firestore.rules` e `firestore.indexes.json` já versionados
+
 ## Entregas
 
 - [ ] Instalar Firebase SDK
 - [ ] Criar módulo de configuração
-- [ ] Criar .env.example VITE_FIREBASE_*
-- [ ] Adicionar firebase.json/firestore.rules/firestore.indexes.json
+- [ ] Consumir as variáveis VITE_FIREBASE_* já documentadas em `.env.example`
+- [ ] Validar e integrar os arquivos Firebase já existentes
 - [ ] Configurar Emulator Suite
 
 ## Critérios de aceite
