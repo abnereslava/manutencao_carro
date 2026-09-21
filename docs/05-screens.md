@@ -507,12 +507,14 @@ Campos:
 - Prioridade
 - Observações
 
-## Seção 2 — Prazo
+## Seção 2 — Base do ciclo
 
-Campos:
+Para manutenção recorrente, pedir os dados reais da última realização:
 
-- Data prevista
-- KM previsto
+- Data da última realização
+- KM da última realização
+
+Esses dados formam a origem do ciclo e, quando ambos forem informados, devem gerar a ocorrência histórica correspondente.
 
 ## Seção 3 — Recorrência
 
@@ -524,6 +526,15 @@ Opções:
 - A cada X meses
 - A cada X anos
 - X km ou Y tempo
+
+Para manutenção recorrente, os próximos limites são dados derivados:
+
+- próximo KM = KM da última realização + intervalo em KM;
+- próxima data = data da última realização + intervalo temporal.
+
+Os campos de próximo KM e próxima data devem ser calculados automaticamente e exibidos somente para leitura. Se os dois limites existirem, vence no primeiro que for atingido.
+
+Para manutenção sem recorrência, data prevista e KM previsto podem continuar sendo definidos manualmente.
 
 ## Seção 4 — Garantia prevista
 
