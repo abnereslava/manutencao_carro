@@ -242,10 +242,13 @@ export function DashboardPage() {
         <div className="recent-expense">
           <Receipt />
           <span>
-            <b>Última manutenção</b>
+            <b>{data.occurrences.length ? 'Última manutenção' : 'Nenhuma manutenção registrada'}</b>
             <small>
-              {formatMoney(calculateExpense(data.occurrences[0].expense!).netAmountCents)} ·{' '}
-              {formatDate(data.occurrences[0].performedDate)}
+              {data.occurrences.length
+                ? `${formatMoney(
+                    calculateExpense(data.occurrences[0].expense!).netAmountCents
+                  )} · ${formatDate(data.occurrences[0].performedDate)}`
+                : 'Registre a primeira manutenção do veículo.'}
             </small>
           </span>
         </div>
