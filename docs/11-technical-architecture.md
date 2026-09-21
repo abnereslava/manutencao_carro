@@ -661,15 +661,30 @@ A allowlist deverá fazer parte das regras/configuração segura.
 
 # 28. Bootstrap temporário da allowlist
 
-Como o projeto Firebase ainda não existe, os UIDs ainda não são conhecidos.
+O projeto Firebase já foi criado:
 
-Durante configuração inicial poderá ser usada temporariamente uma regra baseada em:
+```text
+Project ID: appcarro-d3c92
+Auth domain: appcarro-d3c92.firebaseapp.com
+```
+
+Os UIDs das duas contas ainda dependerão do primeiro login Google de cada usuário.
+
+Até que ambos existam em Firebase Authentication, usar allowlist baseada em:
 
 - usuário autenticado;
-- email verificado;
-- email pertencente às duas contas permitidas.
+- e-mail verificado;
+- provedor Google;
+- e-mail pertencente às duas contas permitidas.
 
-Depois de obter os UIDs, migrar as regras para UID allowlist.
+Contas autorizadas:
+
+```text
+abner.eslava@gmail.com
+mariner.eslava@gmail.com
+```
+
+Depois de obter os dois UIDs, migrar as regras para UID allowlist.
 
 ---
 
@@ -688,6 +703,18 @@ App Check poderá ser avaliado como camada adicional de proteção contra abuso,
 ---
 
 # 30. Firebase config
+
+Configuração real da Web App:
+
+```text
+projectId: appcarro-d3c92
+authDomain: appcarro-d3c92.firebaseapp.com
+storageBucket: appcarro-d3c92.firebasestorage.app
+messagingSenderId: 555656143921
+appId: 1:555656143921:web:8de56f5ebeaa3475286110
+```
+
+Os valores completos para o frontend estão registrados em `.env.example`.
 
 O Firebase Web Config não deverá ser tratado como substituto de segurança.
 
@@ -1483,3 +1510,30 @@ Firebase não é considerado segurança sem Rules.
 Offline não deve comprometer privacidade.
 Dados derivados devem ser recalculáveis.
 ```
+
+
+---
+
+# 80. Estado atual da infraestrutura Firebase
+
+Já provisionado:
+
+- projeto Firebase `appcarro-d3c92`;
+- Web App;
+- Cloud Firestore;
+- configuração web;
+- arquivos locais de configuração Firebase versionados;
+- Security Rules iniciais com allowlist por e-mail.
+
+Ainda requer ação/configuração no console ou durante implementação:
+
+- habilitar o provedor Google em Authentication, caso ainda não esteja ativo;
+- adicionar `abnereslava.github.io` em Authorized domains;
+- adicionar `localhost` apenas se necessário para desenvolvimento local com Auth real;
+- realizar primeiro login das duas contas;
+- coletar os dois UIDs;
+- migrar allowlist das Rules de e-mail para UID;
+- publicar Rules/índices via Firebase CLI;
+- implementar Auth/Firestore no frontend conforme tasks.
+
+Documento operacional: `docs/15-firebase-setup.md`.
