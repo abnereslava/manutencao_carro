@@ -214,14 +214,21 @@ Até os dois UIDs existirem, a allowlist de e-mail verificado é a estratégia i
 
 ## 11. Publicação das Rules
 
-Com Firebase CLI autenticado no projeto:
+As regras podem ser publicadas sem configurar uma conta de serviço no Google Cloud:
+
+1. Abra o projeto `appcarro-d3c92` no Firebase Console.
+2. Acesse **Firestore Database → Regras**.
+3. Substitua o conteúdo pelo arquivo `firestore.rules` deste repositório.
+4. Clique em **Publicar**.
+
+O arquivo `firestore.indexes.json` não define índices compostos na configuração atual, portanto não há índices adicionais para publicar.
+
+Como alternativa, para publicar manualmente com a Firebase CLI autenticada:
 
 ```bash
 firebase use appcarro-d3c92
 firebase deploy --only firestore:rules,firestore:indexes
 ```
-
-O frontend publicado pelo GitHub Pages não publica Security Rules automaticamente.
 
 ---
 
