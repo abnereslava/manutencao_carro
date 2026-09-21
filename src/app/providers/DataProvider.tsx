@@ -48,7 +48,10 @@ interface DataContextValue {
       | 'componentDefinitionId'
       | 'description'
       | 'observations'
-    >
+    > & {
+      initialPerformedDate?: string;
+      initialPerformedKm?: number;
+    }
   ) => void;
   completeMaintenance: (
     id: string,
@@ -282,15 +285,44 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   const saveMaintenance: DataContextValue['saveMaintenance'] = (input) =>
     persist((current) => {
+      const { initialPerformedDate, initialPerformedKm, ...planInput } = input;
       const plan = {
         ...audit(),
         id: uid('maint'),
         status: 'ok',
         isActive: true,
-        ...input
+        ...planInput
       } as MaintenancePlan;
+      plan.status = calculateMaintenanceStatus(plan, {
+        currentKm: current.vehicle.currentOdometer,
+        today: todayISO(),
+        alertKmThreshold: current.settings.alertKmThreshold,
+        alertDaysThreshold: current.settings.alertDaysThreshold
+      });
+
+      const occurrence =
+        initialPerformedDate && initialPerformedKm !== undefined
+          ? ({
+              ...audit(),
+              id: uid('occ'),
+              maintenancePlanId: plan.id,
+              performedDate: initialPerformedDate,
+              odometerKm: initialPerformedKm,
+              status: 'completed',
+              observations: '',
+              partActions: []
+            } as MaintenanceOccurrence)
+          : undefined;
+
       void repositories.current?.maintenancePlans.save(plan);
-      return { ...current, maintenancePlans: [plan, ...current.maintenancePlans] };
+      if (occurrence) void repositories.current?.maintenanceOccurrences.save(occurrence);
+
+      const base = {
+        ...current,
+        maintenancePlans: [plan, ...current.maintenancePlans],
+        occurrences: occurrence ? [occurrence, ...current.occurrences] : current.occurrences
+      };
+      return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
     });
   const completeMaintenance = (
     id: string,
