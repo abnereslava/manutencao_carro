@@ -202,10 +202,10 @@ A lógica usa condição equivalente a days < -7 para considerar garantia expira
 
 Ao atingir a data de vencimento:
 
-~~~text
+```text
 days <= 0
 => expired
-~~~
+```
 
 Garantia vencida hoje ou em qualquer data passada deve ficar vencida imediatamente.
 
@@ -217,11 +217,11 @@ Garantia vencida hoje ou em qualquer data passada deve ficar vencida imediatamen
 
 Exemplo válido:
 
-~~~text
+```text
 KM atual: 160.000
 Manutenção histórica: 151.200
 => permitido
-~~~
+```
 
 ### Estado atual auditado
 
@@ -431,14 +431,14 @@ Não duplicar dados manualmente apenas para alimentar a timeline.
 
 Ao editar evento-base:
 
-~~~text
+```text
 Salvar
 -> identificar dependências
 -> recalcular apenas ciclos relacionados
 -> recalcular estados
 -> recalcular alertas
 -> recalcular gastos quando aplicável
-~~~
+```
 
 Ao excluir evento histórico com dependências posteriores ambíguas:
 
@@ -512,15 +512,15 @@ Evitar texto genérico quando o dado real pode ser calculado.
 
 Exemplo:
 
-~~~text
+```text
 Faltam 800 km ou 43 dias
-~~~
+```
 
 ou:
 
-~~~text
+```text
 Vencida há 320 km
-~~~
+```
 
 ---
 

@@ -55,11 +55,15 @@ interface DataContextValue {
   ) => void;
   completeMaintenance: (
     id: string,
-    date: string,
-    km: number,
-    provider: string,
-    costCents: number
-  ) => void;
+    input: {
+      performedDate: string;
+      odometerKm: number;
+      workshopOrProvider?: string;
+      observations: string;
+      expense: NonNullable<MaintenanceOccurrence['expense']>;
+      partActions: MaintenanceOccurrence['partActions'];
+    }
+  ) => Promise<void>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => void;
@@ -324,56 +328,54 @@ export function DataProvider({ children }: { children: ReactNode }) {
       };
       return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
     });
-  const completeMaintenance = (
-    id: string,
-    date: string,
-    km: number,
-    provider: string,
-    costCents: number
-  ) =>
-    persist((current) => {
-      const plan = current.maintenancePlans.find((item) => item.id === id);
-      if (!plan) return current;
-      const occurrence: MaintenanceOccurrence = {
-        ...audit(),
-        id: uid('occ'),
-        maintenancePlanId: id,
-        performedDate: date,
-        odometerKm: km,
-        status: 'completed',
-        workshopOrProvider: provider,
-        observations: '',
-        expense: {
-          partsTotalCents: 0,
-          laborCostCents: costCents,
-          otherCostCents: 0,
-          manualOverrideEnabled: false,
-          refundStatus: 'none',
-          refundedAmountCents: 0
-        },
-        partActions: []
-      };
-      const cycle = nextCycle(plan, km, date);
-      const updatedPlan: MaintenancePlan = {
-        ...plan,
-        ...cycle,
-        status: plan.recurrenceType === 'none' ? 'archived' : 'ok',
-        isActive: plan.recurrenceType !== 'none',
-        revision: plan.revision + 1,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user?.email ?? 'local'
-      };
-      void repositories.current?.maintenanceOccurrences.save(occurrence);
-      void repositories.current?.maintenancePlans.save(updatedPlan);
-      const base = {
-        ...current,
-        occurrences: [occurrence, ...current.occurrences],
-        maintenancePlans: current.maintenancePlans.map((item) =>
-          item.id === id ? updatedPlan : item
-        )
-      };
-      return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
-    });
+  const completeMaintenance: DataContextValue['completeMaintenance'] = async (id, input) => {
+    const current = data;
+    const plan = current.maintenancePlans.find((item) => item.id === id);
+    if (!plan) throw new Error('Plano de manutenção não encontrado.');
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para concluir esta manutenção.');
+
+    const occurrence: MaintenanceOccurrence = {
+      ...audit(),
+      id: uid('occ'),
+      maintenancePlanId: id,
+      performedDate: input.performedDate,
+      odometerKm: input.odometerKm,
+      status: 'completed',
+      workshopOrProvider: input.workshopOrProvider,
+      observations: input.observations,
+      expense: input.expense,
+      partActions: input.partActions
+    };
+    const cycle = nextCycle(plan, input.odometerKm, input.performedDate);
+    const updatedPlan: MaintenancePlan = {
+      ...plan,
+      ...cycle,
+      status: plan.recurrenceType === 'none' ? 'archived' : 'ok',
+      isActive: plan.recurrenceType !== 'none',
+      revision: plan.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+
+    if (repositories.current) {
+      await Promise.all([
+        repositories.current.maintenanceOccurrences.save(occurrence),
+        repositories.current.maintenancePlans.save(updatedPlan)
+      ]);
+    }
+
+    const base = {
+      ...current,
+      occurrences: [occurrence, ...current.occurrences],
+      maintenancePlans: current.maintenancePlans.map((item) =>
+        item.id === id ? updatedPlan : item
+      )
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
   const addDocument: DataContextValue['addDocument'] = (input) =>
     persist((current) => {
       const document = {

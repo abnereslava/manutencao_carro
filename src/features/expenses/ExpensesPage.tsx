@@ -9,7 +9,7 @@ export function ExpensesPage() {
   const { data } = useData();
   const maintenance = data.occurrences.map((item) => ({
     item,
-    amount: calculateExpense(item.expense!)
+    amount: calculateExpense(item.expense)
   }));
   const documentsTotal = data.documents.reduce((sum, item) => sum + (item.amountCents ?? 0), 0);
   const gross =

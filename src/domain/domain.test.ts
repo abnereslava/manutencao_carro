@@ -76,6 +76,15 @@ describe('manutenção', () => {
 });
 
 describe('financeiro', () => {
+  it('trata ocorrência legada sem custo como total zero', () => {
+    expect(calculateExpense()).toEqual({
+      calculatedTotalCents: 0,
+      grossAmountCents: 0,
+      refundedAmountCents: 0,
+      netAmountCents: 0
+    });
+  });
+
   it('preserva calculado, aplica override e estorno sem ficar negativo', () => {
     expect(
       calculateExpense({

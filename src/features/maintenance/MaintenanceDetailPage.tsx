@@ -4,10 +4,18 @@ import { ArrowLeft, CalendarClock, CheckCircle2, Gauge, Wrench } from 'lucide-re
 import { useData } from '../../app/providers/DataProvider';
 import { getComponent } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
-import { Badge, Button, Card, Input, Modal } from '../../components/ui';
+import { Badge, Button, Card, Input, Modal, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
-import { formatDate, formatKm, todayISO } from '../../lib/format';
+import { calculateExpense } from '../../domain/expenses';
+import { nextCycle } from '../../domain/maintenance';
+import { formatDate, formatKm, formatMoney, todayISO } from '../../lib/format';
 import { statusTone } from './MaintenancePage';
+
+function currencyToCents(value: string): number {
+  const normalized = value.includes(',') ? value.replace(/\./g, '').replace(',', '.') : value;
+  const amount = Number(normalized || 0);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : Number.NaN;
+}
 
 export function MaintenanceDetailPage() {
   const { id } = useParams();
@@ -18,7 +26,14 @@ export function MaintenanceDetailPage() {
   const [date, setDate] = useState(todayISO());
   const [km, setKm] = useState(String(data.vehicle.currentOdometer));
   const [provider, setProvider] = useState('');
-  const [cost, setCost] = useState('');
+  const [observations, setObservations] = useState('');
+  const [partsCost, setPartsCost] = useState('');
+  const [laborCost, setLaborCost] = useState('');
+  const [otherCost, setOtherCost] = useState('');
+  const [manualOverrideEnabled, setManualOverrideEnabled] = useState(false);
+  const [manualTotal, setManualTotal] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const plan = data.maintenancePlans.find((item) => item.id === id);
   if (!plan)
     return (
@@ -29,17 +44,62 @@ export function MaintenanceDetailPage() {
     );
   const component = getComponent(plan.componentDefinitionId);
   const history = data.occurrences.filter((item) => item.maintenancePlanId === plan.id);
-  const complete = (event: React.FormEvent) => {
+  const preview = nextCycle(plan, Number(km || 0), date);
+  const expense = {
+    partsTotalCents: currencyToCents(partsCost),
+    laborCostCents: currencyToCents(laborCost),
+    otherCostCents: currencyToCents(otherCost),
+    manualTotalCents: manualOverrideEnabled ? currencyToCents(manualTotal) : undefined,
+    manualOverrideEnabled,
+    refundStatus: 'none' as const,
+    refundedAmountCents: 0
+  };
+  const expensePreview = Object.values(expense).some(
+    (value) => typeof value === 'number' && Number.isNaN(value)
+  )
+    ? undefined
+    : calculateExpense(expense);
+
+  const complete = async (event: React.FormEvent) => {
     event.preventDefault();
-    completeMaintenance(
-      plan.id,
-      date,
-      Number(km),
-      provider,
-      Math.round(Number(cost.replace(',', '.')) * 100)
-    );
-    toast('Manutenção concluída e próximo ciclo recalculado.');
-    setOpen(false);
+    setSubmitError('');
+    if (!date || km === '' || Number(km) < 0) {
+      setSubmitError('Informe uma data e uma quilometragem válidas.');
+      return;
+    }
+    if (!expensePreview || (manualOverrideEnabled && manualTotal.trim() === '')) {
+      setSubmitError('Revise os valores informados nos custos.');
+      return;
+    }
+    if (
+      expense.partsTotalCents < 0 ||
+      expense.laborCostCents < 0 ||
+      expense.otherCostCents < 0 ||
+      (expense.manualTotalCents ?? 0) < 0
+    ) {
+      setSubmitError('Os custos não podem ser negativos.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await completeMaintenance(plan.id, {
+        performedDate: date,
+        odometerKm: Number(km),
+        workshopOrProvider: provider.trim() || undefined,
+        observations: observations.trim(),
+        expense,
+        partActions: []
+      });
+      toast('Manutenção concluída e próximo ciclo recalculado.');
+      setOpen(false);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : 'Não foi possível concluir a manutenção.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   return (
     <>
@@ -129,11 +189,28 @@ export function MaintenanceDetailPage() {
           {!history.length && <p>Ainda não há conclusões registradas.</p>}
         </Card>
       </div>
-      <Modal open={open} onClose={() => setOpen(false)} title="Concluir manutenção" size="wide">
+      <Modal
+        open={open}
+        onClose={() => !isSubmitting && setOpen(false)}
+        title="Concluir manutenção"
+        size="wide"
+      >
         <form onSubmit={complete}>
           <div className="completion-preview">
-            <b>Resumo da conclusão</b>
-            <span>O próximo ciclo será calculado a partir da data e KM reais.</span>
+            <b>Prévia do próximo ciclo</b>
+            {plan.recurrenceType === 'none' ? (
+              <span>Este plano será arquivado após a conclusão.</span>
+            ) : (
+              <span>
+                {preview.nextDueKm !== undefined
+                  ? `Próximo KM: ${formatKm(preview.nextDueKm)}`
+                  : 'Sem limite por KM'}
+                {' · '}
+                {preview.nextDueDate
+                  ? `Próxima data: ${formatDate(preview.nextDueDate)}`
+                  : 'Sem limite por data'}
+              </span>
+            )}
           </div>
           <div className="form-grid">
             <Input
@@ -146,9 +223,10 @@ export function MaintenanceDetailPage() {
             <Input
               label="Quilometragem"
               type="number"
-              min={data.vehicle.currentOdometer}
+              min="0"
               required
               value={km}
+              hint="Pode ser menor que o KM atual em registros históricos."
               onChange={(e) => setKm(e.target.value)}
             />
             <Input
@@ -156,18 +234,76 @@ export function MaintenanceDetailPage() {
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
             />
-            <Input
-              label="Custo total (R$)"
-              inputMode="decimal"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
+            <Textarea
+              className="full"
+              label="Observações"
+              value={observations}
+              onChange={(e) => setObservations(e.target.value)}
             />
+            <Input
+              label="Custo das peças (R$)"
+              inputMode="decimal"
+              value={partsCost}
+              onChange={(e) => setPartsCost(e.target.value)}
+            />
+            <Input
+              label="Mão de obra (R$)"
+              inputMode="decimal"
+              value={laborCost}
+              onChange={(e) => setLaborCost(e.target.value)}
+            />
+            <Input
+              label="Outros custos (R$)"
+              inputMode="decimal"
+              value={otherCost}
+              onChange={(e) => setOtherCost(e.target.value)}
+            />
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={manualOverrideEnabled}
+                onChange={(event) => setManualOverrideEnabled(event.target.checked)}
+              />
+              Informar um total manual
+            </label>
+            {manualOverrideEnabled && (
+              <Input
+                label="Total manual (R$)"
+                inputMode="decimal"
+                required
+                value={manualTotal}
+                onChange={(e) => setManualTotal(e.target.value)}
+              />
+            )}
           </div>
+          <div className="completion-preview completion-totals">
+            <b>
+              Total calculado:{' '}
+              {expensePreview ? formatMoney(expensePreview.calculatedTotalCents) : 'Valor inválido'}
+            </b>
+            {manualOverrideEnabled && expensePreview && (
+              <span>
+                Total efetivo com override: {formatMoney(expensePreview.grossAmountCents)}
+              </span>
+            )}
+          </div>
+          {submitError && (
+            <p className="form-submit-error" role="alert">
+              {submitError}
+            </p>
+          )}
           <div className="form-actions">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isSubmitting}
+              onClick={() => setOpen(false)}
+            >
               Cancelar
             </Button>
-            <Button type="submit">Confirmar conclusão</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Salvando…' : 'Confirmar conclusão'}
+            </Button>
           </div>
         </form>
       </Modal>

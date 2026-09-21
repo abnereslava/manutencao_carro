@@ -246,7 +246,7 @@ export function DashboardPage() {
             <small>
               {data.occurrences.length
                 ? `${formatMoney(
-                    calculateExpense(data.occurrences[0].expense!).netAmountCents
+                    calculateExpense(data.occurrences[0].expense).netAmountCents
                   )} · ${formatDate(data.occurrences[0].performedDate)}`
                 : 'Registre a primeira manutenção do veículo.'}
             </small>

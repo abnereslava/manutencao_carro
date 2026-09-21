@@ -464,6 +464,24 @@ main {
   gap: 10px;
   margin-top: 24px;
 }
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+}
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+}
+.form-submit-error {
+  margin: 12px 0 0;
+  color: var(--color-status-danger);
+  font-weight: 700;
+}
 
 .modal-backdrop {
   position: fixed;
@@ -1345,6 +1363,10 @@ main {
 .completion-preview span {
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+.completion-totals {
+  margin-top: 18px;
+  margin-bottom: 0;
 }
 .not-found-card {
   padding: 40px;
