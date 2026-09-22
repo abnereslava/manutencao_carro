@@ -337,6 +337,7 @@ export const seedData: AppData = {
       hidden: false,
       resolved: false,
       canSnooze: true,
+      canHide: true,
       dueKm: 141500,
       href: '/maintenance'
     },
@@ -351,6 +352,7 @@ export const seedData: AppData = {
       hidden: false,
       resolved: false,
       canSnooze: true,
+      canHide: true,
       href: '/parts/cabin-filter'
     },
     {
@@ -364,6 +366,7 @@ export const seedData: AppData = {
       hidden: false,
       resolved: false,
       canSnooze: true,
+      canHide: true,
       dueDate: '2026-10-31',
       href: '/documents'
     }

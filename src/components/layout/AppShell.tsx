@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { useData, type ConflictValue } from '../../app/providers/DataProvider';
+import { isAlertActive } from '../../domain/alerts';
 import { Button, IconButton, Modal, Textarea } from '../ui';
 
 const links = [
@@ -46,7 +47,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { data, syncState, conflicts, resolveConflict } = useData();
   const location = useLocation();
-  const activeAlerts = data.alerts.filter((item) => !item.resolved && !item.hidden).length;
+  const activeAlerts = data.alerts.filter((item) =>
+    isAlertActive(item, data.vehicle.currentOdometer)
+  ).length;
   const activeConflict = conflicts[0];
   useEffect(() => {
     setMenuOpen(false);

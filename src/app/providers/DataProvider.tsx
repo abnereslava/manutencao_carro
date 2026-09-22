@@ -167,7 +167,9 @@ interface DataContextValue {
   ) => Promise<string>;
   removeDocument: (id: string) => Promise<void>;
   markAlertSeen: (id: string) => Promise<void>;
-  snoozeAlert: (id: string) => Promise<void>;
+  snoozeAlert: (id: string, input: { untilDate?: string; untilKm?: number }) => Promise<void>;
+  reactivateAlert: (id: string) => Promise<void>;
+  setAlertHidden: (id: string, hidden: boolean) => Promise<void>;
   updateSettings: (settings: AppData['settings']) => Promise<void>;
   resolveConflict: (
     id: string,
@@ -252,9 +254,11 @@ function divergentFields(local: ConflictValue, remote: ConflictValue) {
 function restoreDemo(): AppData {
   try {
     const value = localStorage.getItem(storageKey);
-    return value ? (JSON.parse(value) as AppData) : structuredClone(seedData);
+    const restored = value ? (JSON.parse(value) as AppData) : structuredClone(seedData);
+    return { ...restored, alerts: mergeAlertState(deriveAlerts(restored), restored.alerts) };
   } catch {
-    return structuredClone(seedData);
+    const restored = structuredClone(seedData);
+    return { ...restored, alerts: mergeAlertState(deriveAlerts(restored), restored.alerts) };
   }
 }
 
@@ -1847,13 +1851,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
-  const snoozeAlert: DataContextValue['snoozeAlert'] = async (id) => {
+  const snoozeAlert: DataContextValue['snoozeAlert'] = async (id, input) => {
     const current = data;
+    const currentAlert = current.alerts.find((item) => item.id === id);
+    if (!currentAlert) throw new Error('Alerta não encontrado.');
+    if (!currentAlert.canSnooze) throw new Error('Este alerta não pode ser adiado.');
+    if (!input.untilDate && input.untilKm === undefined)
+      throw new Error('Informe uma data, uma quilometragem ou ambas.');
+    if (input.untilDate && input.untilDate <= todayISO())
+      throw new Error('A data de reaparecimento deve estar no futuro.');
+    if (input.untilKm !== undefined && input.untilKm <= current.vehicle.currentOdometer)
+      throw new Error('A quilometragem de reaparecimento deve ser maior que a atual.');
     const alerts = current.alerts.map((item) =>
-      item.id === id && item.canSnooze
+      item.id === id
         ? {
             ...item,
-            snoozedUntilDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+            snoozedUntilDate: input.untilDate,
+            snoozedUntilKm: input.untilKm
           }
         : item
     );
@@ -1861,6 +1875,53 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!alert) throw new Error('Alerta não encontrado.');
     if (!user?.demo && !repositories.current)
       throw new Error('O Firestore não está disponível para adiar o alerta.');
+    await runMutation(`alert:${id}`, async () => {
+      if (repositories.current) await repositories.current.alerts.save(alert);
+    });
+    const next = { ...current, alerts };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const reactivateAlert: DataContextValue['reactivateAlert'] = async (id) => {
+    const current = data;
+    const currentAlert = current.alerts.find((item) => item.id === id);
+    if (!currentAlert) throw new Error('Alerta não encontrado.');
+    const alert = {
+      ...currentAlert,
+      snoozedUntilDate: undefined,
+      snoozedUntilKm: undefined
+    };
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para reativar o alerta.');
+    await runMutation(`alert:${id}`, async () => {
+      if (repositories.current) await repositories.current.alerts.save(alert);
+    });
+    const next = {
+      ...current,
+      alerts: current.alerts.map((item) => (item.id === id ? alert : item))
+    };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const setAlertHidden: DataContextValue['setAlertHidden'] = async (id, hidden) => {
+    const current = data;
+    const currentAlert = current.alerts.find((item) => item.id === id);
+    if (!currentAlert) throw new Error('Alerta não encontrado.');
+    if (hidden && !currentAlert.canHide) throw new Error('Este alerta não pode ser ocultado.');
+    const alerts = current.alerts.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            hidden,
+            seen: hidden ? true : item.seen,
+            snoozedUntilDate: hidden ? undefined : item.snoozedUntilDate,
+            snoozedUntilKm: hidden ? undefined : item.snoozedUntilKm
+          }
+        : item
+    );
+    const alert = alerts.find((item) => item.id === id)!;
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para atualizar o alerta.');
     await runMutation(`alert:${id}`, async () => {
       if (repositories.current) await repositories.current.alerts.save(alert);
     });
@@ -2016,7 +2077,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
   const resetDemo = () => {
     localStorage.removeItem(storageKey);
-    setDataState(structuredClone(seedData));
+    const restored = structuredClone(seedData);
+    setDataState({
+      ...restored,
+      alerts: mergeAlertState(deriveAlerts(restored), restored.alerts)
+    });
   };
   const value = useMemo(
     () => ({
@@ -2043,6 +2108,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       removeDocument,
       markAlertSeen,
       snoozeAlert,
+      reactivateAlert,
+      setAlertHidden,
       updateSettings,
       resolveConflict,
       resetDemo

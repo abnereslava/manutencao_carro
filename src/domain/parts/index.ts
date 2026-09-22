@@ -40,6 +40,8 @@ export function removePart(
       hidden: false,
       resolved: false,
       canSnooze: false,
+      canHide: false,
+      componentName: component.name,
       href: `/parts/${component.id}`
     }
   };

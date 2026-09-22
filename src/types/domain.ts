@@ -251,10 +251,15 @@ export interface AlertItem {
   hidden: boolean;
   resolved: boolean;
   canSnooze: boolean;
+  canHide: boolean;
   snoozedUntilDate?: ISODate;
   snoozedUntilKm?: number;
   dueDate?: ISODate;
   dueKm?: number;
+  remainingDays?: number;
+  remainingKm?: number;
+  urgentCriterion?: 'date' | 'km' | 'both';
+  componentName?: string;
   href: string;
 }
 

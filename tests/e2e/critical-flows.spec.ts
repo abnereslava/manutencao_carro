@@ -177,10 +177,63 @@ test('estorno parcial pode virar total e ser removido sem desfazer manutenção'
   expect(occurrence.partActions).toHaveLength(1);
 });
 
-test('alerta crítico não oferece adiamento quando não permitido', async ({ page }) => {
+test('alertas respeitam contexto, adiamento, ocultação e integridade essencial', async ({
+  page
+}) => {
   await page.goto('./#/alerts');
-  const critical = page.getByText('Correia dentada vencida').locator('..').locator('..');
+  const critical = page.locator('.alert-card').filter({ hasText: 'Revisar correia dentada' });
   await expect(critical).toContainText('Crítico');
+  await expect(critical).toContainText('6.750 km de atraso');
+  await expect(critical).toContainText('Correia dentada');
+  await expect(critical).toContainText('Critério mais urgente: KM');
+  const alertButton = page.locator('.alert-button');
+  const activeBefore = Number((await alertButton.getAttribute('aria-label'))?.match(/\d+/)?.[0]);
+
+  const optionalMissing = page
+    .locator('.alert-card')
+    .filter({ hasText: 'Filtro de cabine faltando' });
+  await optionalMissing.getByRole('button', { name: 'Adiar' }).click();
+  await page.getByLabel('Prazo por tempo').selectOption('7');
+  await page.getByLabel('Prazo por quilometragem').selectOption('500');
+  await page.getByRole('button', { name: 'Confirmar adiamento' }).click();
+  await expect(optionalMissing).toHaveCount(0);
+  await expect(alertButton).toHaveAttribute('aria-label', `${activeBefore - 1} alertas`);
+  await page.getByRole('tab', { name: /Adiados 1/ }).click();
+  await expect(page.getByText('Filtro de cabine faltando')).toBeVisible();
+  await expect(page.getByText(/Adiado até 148\.750 km/)).toBeVisible();
+  await page.getByRole('button', { name: 'Reativar agora' }).click();
+  await expect(page.getByText('Filtro de cabine faltando')).toHaveCount(0);
+  await expect(alertButton).toHaveAttribute('aria-label', `${activeBefore} alertas`);
+
+  await page.getByRole('tab', { name: /Ativos/ }).click();
+  await expect(page.getByText('Filtro de cabine faltando')).toBeVisible();
+  const documentAlert = page
+    .locator('.alert-card')
+    .filter({ hasText: 'Licenciamento 2026 próximo' });
+  await documentAlert.getByRole('button', { name: 'Ocultar' }).click();
+  await expect(documentAlert).toHaveCount(0);
+  await expect(alertButton).toHaveAttribute('aria-label', `${activeBefore - 1} alertas`);
+  await page.getByRole('tab', { name: /Ocultos 1/ }).click();
+  await expect(page.getByText('Licenciamento 2026 próximo')).toBeVisible();
+  await page.getByRole('button', { name: 'Reexibir' }).click();
+  await expect(page.getByText('Licenciamento 2026 próximo')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    const battery = saved.componentStates.find(
+      (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'battery'
+    );
+    battery.state = 'missing';
+    delete battery.currentPartInstanceId;
+    localStorage.setItem('carango-demo-data-v1', JSON.stringify(saved));
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Explorar demonstração' }).click();
+  await page.goto('./#/alerts');
+  const essentialMissing = page.locator('.alert-card').filter({ hasText: 'Bateria faltando' });
+  await expect(essentialMissing).toContainText('Componente essencial');
+  await expect(essentialMissing.getByRole('button', { name: 'Adiar' })).toHaveCount(0);
+  await expect(essentialMissing.getByRole('button', { name: 'Ocultar' })).toHaveCount(0);
 });
 
 test('Hub de Peças busca dados da peça e inicia ação vinculada à manutenção', async ({ page }) => {

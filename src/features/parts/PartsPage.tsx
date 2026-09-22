@@ -15,6 +15,7 @@ import { positionLabel, VEHICLE_POSITIONS } from '../../catalog/positions/vehicl
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Card, EmptyState, Select, Tabs } from '../../components/ui';
 import { calculateWarrantyState } from '../../domain/warranty';
+import { isAlertActive } from '../../domain/alerts';
 import { todayISO } from '../../lib/format';
 
 const stateMeta = {
@@ -81,8 +82,7 @@ export function PartsPage() {
         );
         const hasAlert = data.alerts.some(
           (alert) =>
-            !alert.resolved &&
-            !alert.hidden &&
+            isAlertActive(alert, data.vehicle.currentOdometer) &&
             ((alert.sourceType === 'part' &&
               (alert.sourceId === component.id ||
                 componentParts.some((part) => part.id === alert.sourceId))) ||

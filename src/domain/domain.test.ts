@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { deriveAlerts, isAlertActive, isAlertSnoozed, mergeAlertState } from './alerts';
 import { calculateExpense, clearExpenseRefund, setExpenseRefund } from './expenses';
 import { analyzeOccurrenceDependencies, deriveTimeline } from './history';
 import { calculateMaintenanceStatus, nextCycle } from './maintenance';
@@ -345,7 +346,11 @@ describe('integridade de peça essencial', () => {
     };
     const result = removePart(state, component);
     expect(result.state.state).toBe('missing');
-    expect(result.alert).toMatchObject({ priority: 'critical', canSnooze: false });
+    expect(result.alert).toMatchObject({
+      priority: 'critical',
+      canSnooze: false,
+      canHide: false
+    });
   });
 
   it('remove componente opcional sem criar alerta crítico', () => {
@@ -372,5 +377,65 @@ describe('integridade de peça essencial', () => {
     const result = removePart(state, component);
     expect(result.state).toMatchObject({ state: 'unknown', currentPartInstanceId: undefined });
     expect(result.alert).toBeUndefined();
+  });
+});
+
+describe('ciclo dos alertas', () => {
+  const addDays = (days: number) => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  };
+
+  it('calcula contexto combinado, componente e critério mais urgente', () => {
+    const data = structuredClone(seedData);
+    data.maintenancePlans = [
+      {
+        ...data.maintenancePlans[0],
+        nextDueKm: data.vehicle.currentOdometer + 800,
+        nextDueDate: addDays(43),
+        status: 'upcoming'
+      }
+    ];
+    data.componentStates = [];
+    data.issues = [];
+    data.warranties = [];
+    data.documents = [];
+    const alert = deriveAlerts(data)[0];
+    expect(alert).toMatchObject({
+      remainingKm: 800,
+      remainingDays: 43,
+      componentName: 'Óleo do motor',
+      urgentCriterion: 'date'
+    });
+    expect(alert?.description).toContain('Faltam 800 km ou 43 dia(s)');
+  });
+
+  it('retira o adiado da lista ativa e o faz reaparecer no prazo', () => {
+    const alert = {
+      ...deriveAlerts(structuredClone(seedData))[0],
+      snoozedUntilDate: addDays(7),
+      snoozedUntilKm: seedData.vehicle.currentOdometer + 500
+    };
+    if (!alert) throw new Error('Alerta de teste ausente.');
+    expect(isAlertSnoozed(alert, seedData.vehicle.currentOdometer)).toBe(true);
+    expect(isAlertActive(alert, seedData.vehicle.currentOdometer)).toBe(false);
+    expect(isAlertActive(alert, seedData.vehicle.currentOdometer + 500)).toBe(true);
+    expect(isAlertActive(alert, seedData.vehicle.currentOdometer, addDays(7))).toBe(true);
+  });
+
+  it('reativa como novo quando a prioridade piora materialmente', () => {
+    const derived = deriveAlerts(structuredClone(seedData))[0];
+    if (!derived) throw new Error('Alerta de teste ausente.');
+    const previous = {
+      ...derived,
+      priority: 'attention' as const,
+      seen: true,
+      hidden: true,
+      snoozedUntilDate: addDays(7)
+    };
+    const result = mergeAlertState([{ ...derived, priority: 'critical' }], [previous])[0];
+    expect(result).toMatchObject({ priority: 'critical', seen: false, hidden: false });
+    expect(result?.snoozedUntilDate).toBeUndefined();
   });
 });
