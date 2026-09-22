@@ -158,6 +158,14 @@ export const saveIssueChange = (
   removedAlertIds: string[]
 ) => saveAuditedEntityWithAlerts(db, `${vehiclePath}/issues`, issue, alerts, removedAlertIds);
 
+export const saveWarrantyChange = (
+  db: Firestore,
+  warranty: Warranty,
+  alerts: AlertItem[],
+  removedAlertIds: string[]
+) =>
+  saveAuditedEntityWithAlerts(db, `${vehiclePath}/warranties`, warranty, alerts, removedAlertIds);
+
 export const saveMaintenancePlanStateChange = (
   db: Firestore,
   plan: MaintenancePlan,

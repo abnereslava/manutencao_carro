@@ -12,7 +12,7 @@ export function calculateWarrantyState(
 ): WarrantyState {
   const days = warranty.endDate ? daysUntil(warranty.endDate, today) : Infinity;
   const km = warranty.endOdometerKm === undefined ? Infinity : warranty.endOdometerKm - currentKm;
-  if (days < -7 || km < 0) return 'expired';
+  if (days <= 0 || km <= 0) return 'expired';
   if (days <= thresholdDays || km <= thresholdKm) return 'upcoming';
   return 'active';
 }

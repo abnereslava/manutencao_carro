@@ -3,7 +3,13 @@ import { calculateExpense } from './expenses';
 import { calculateMaintenanceStatus, nextCycle } from './maintenance';
 import { getCurrentOdometer, sortOdometerRecords, validateOdometerReading } from './odometer';
 import { installPart, removePart } from './parts';
-import type { ComponentDefinition, ComponentState, OdometerRecord } from '../types/domain';
+import { calculateWarrantyState } from './warranty';
+import type {
+  ComponentDefinition,
+  ComponentState,
+  OdometerRecord,
+  Warranty
+} from '../types/domain';
 
 const audit = {
   schemaVersion: 1,
@@ -107,6 +113,32 @@ describe('financeiro', () => {
       refundedAmountCents: 4000,
       netAmountCents: 10000
     });
+  });
+});
+
+describe('garantia', () => {
+  const warranty = (values: Partial<Warranty>): Warranty => ({
+    ...audit,
+    id: 'w',
+    type: 'part',
+    observations: '',
+    ...values
+  });
+
+  it('vence na própria data limite', () => {
+    expect(calculateWarrantyState(warranty({ endDate: '2026-09-22' }), 100, '2026-09-22')).toBe(
+      'expired'
+    );
+  });
+
+  it('vence no primeiro limite combinado atingido', () => {
+    expect(
+      calculateWarrantyState(
+        warranty({ endDate: '2027-09-22', endOdometerKm: 150000 }),
+        150000,
+        '2026-09-22'
+      )
+    ).toBe('expired');
   });
 });
 

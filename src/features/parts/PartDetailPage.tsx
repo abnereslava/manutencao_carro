@@ -116,6 +116,15 @@ export function PartDetailPage() {
   const partWarranty = part
     ? data.warranties.find((warranty) => warranty.partInstanceId === part.id)
     : undefined;
+  const partWarrantyState = partWarranty
+    ? calculateWarrantyState(
+        partWarranty,
+        data.vehicle.currentOdometer,
+        new Date().toISOString().slice(0, 10),
+        data.settings.alertDaysThreshold,
+        data.settings.alertKmThreshold
+      )
+    : undefined;
   const activeRecurrences = plans.filter((plan) => plan.isActive && plan.recurrenceType !== 'none');
   const actionUrl = (action?: 'installed' | 'replaced' | 'removed' | 'inspected' | 'repaired') => {
     const params = new URLSearchParams();
@@ -369,7 +378,7 @@ export function PartDetailPage() {
                     <dt>Garantia atual</dt>
                     <dd>
                       {partWarranty
-                        ? `${calculateWarrantyState(partWarranty, data.vehicle.currentOdometer, new Date().toISOString().slice(0, 10), data.settings.alertDaysThreshold, data.settings.alertKmThreshold) === 'expired' ? 'Vencida' : 'Ativa'}${partWarranty.endDate ? ` até ${formatDate(partWarranty.endDate)}` : partWarranty.endOdometerKm !== undefined ? ` até ${formatKm(partWarranty.endOdometerKm)}` : ''}`
+                        ? `${partWarrantyState === 'expired' ? 'Vencida' : partWarrantyState === 'upcoming' ? 'Próxima do vencimento' : 'Ativa'}${partWarranty.endDate ? ` até ${formatDate(partWarranty.endDate)}` : partWarranty.endOdometerKm !== undefined ? ` até ${formatKm(partWarranty.endOdometerKm)}` : ''}`
                         : 'Não informada'}
                     </dd>
                   </div>

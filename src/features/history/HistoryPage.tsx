@@ -1,11 +1,20 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, FileText, Gauge, PackageOpen, Search, Wrench } from 'lucide-react';
+import {
+  AlertTriangle,
+  FileText,
+  Gauge,
+  PackageOpen,
+  Search,
+  ShieldCheck,
+  Wrench
+} from 'lucide-react';
 import { useData } from '../../app/providers/DataProvider';
 import { getComponent } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
 import { EmptyState, Tabs } from '../../components/ui';
 import { formatDate, formatKm } from '../../lib/format';
 import type { TimelineEvent } from '../../types/domain';
+import { WarrantyManager } from '../warranties/WarrantyManager';
 
 export function HistoryPage() {
   const { data } = useData();
@@ -57,6 +66,14 @@ export function HistoryPage() {
           type: 'document',
           title: item.name,
           detail: `Documento ${item.status}`
+        })),
+        ...data.warranties.map((item) => ({
+          id: item.id,
+          date: item.startDate ?? item.endDate ?? '1900-01-01',
+          type: 'warranty',
+          title: item.type === 'part' ? 'Garantia de peça' : 'Garantia de serviço',
+          detail: item.provider ?? 'Prestador não informado',
+          odometerKm: item.startOdometerKm
         }))
       ].sort((a, b) => b.date.localeCompare(a.date)),
     [data]
@@ -77,6 +94,8 @@ export function HistoryPage() {
       <PackageOpen />
     ) : eventType === 'issue' ? (
       <AlertTriangle />
+    ) : eventType === 'warranty' ? (
+      <ShieldCheck />
     ) : (
       <FileText />
     );
@@ -87,6 +106,7 @@ export function HistoryPage() {
         title="Histórico"
         description="Tudo o que aconteceu com o carro, em uma linha do tempo pesquisável."
       />
+      <WarrantyManager />
       <div className="toolbar">
         <label className="search">
           <Search />
@@ -106,7 +126,8 @@ export function HistoryPage() {
             { id: 'part', label: 'Peças' },
             { id: 'odometer', label: 'KM' },
             { id: 'issue', label: 'Problemas' },
-            { id: 'document', label: 'Documentos' }
+            { id: 'document', label: 'Documentos' },
+            { id: 'warranty', label: 'Garantias' }
           ]}
         />
       </div>

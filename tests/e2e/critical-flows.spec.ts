@@ -223,6 +223,59 @@ test('manutenção pendente aparece na aba e pode ser iniciada', async ({ page }
   await expect(page.getByText('Em andamento')).toBeVisible();
 });
 
+test('garantias de peça e serviço podem ser criadas e editadas', async ({ page }) => {
+  await page.goto('./#/history');
+  await page.getByRole('button', { name: 'Nova garantia' }).click();
+  await page.getByLabel('Peça vinculada').selectOption('part-battery');
+  await page.getByLabel('Data final').fill('2026-09-22');
+  await page.getByLabel('KM final').fill('160000');
+  await page.getByLabel('Prestador ou fornecedor').fill('Loja da bateria');
+  await page.getByLabel('URL do documento').fill('https://example.com/garantia-bateria');
+  await page.getByLabel('Termos').fill('Cobertura integral de fabricação.');
+  await page.getByLabel('Observações da garantia').fill('Nota fiscal arquivada.');
+  await page.getByRole('button', { name: 'Salvar garantia' }).click();
+  await expect(page.getByText('Garantia cadastrada.').last()).toBeVisible();
+  await expect(page.getByText('Vencida').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Editar garantia de Bateria 60 Ah' }).first().click();
+  await page.getByLabel('Prestador ou fornecedor').fill('Loja da bateria atualizada');
+  await page.getByRole('button', { name: 'Salvar garantia' }).click();
+  await expect(page.getByText('Garantia atualizada.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Nova garantia' }).click();
+  await page.getByLabel('Tipo de garantia').selectOption('service');
+  await page.getByLabel('Serviço vinculado').selectOption('occ-oil');
+  await page.getByLabel('Data final').fill('2027-09-22');
+  await page.getByLabel('Prestador ou fornecedor').fill('Oficina garantidora');
+  await page.getByRole('button', { name: 'Salvar garantia' }).click();
+  await expect(page.getByText('Garantia cadastrada.').last()).toBeVisible();
+
+  const warranties = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return saved.warranties.filter((item: { provider?: string }) =>
+      ['Loja da bateria atualizada', 'Oficina garantidora'].includes(item.provider ?? '')
+    );
+  });
+  expect(warranties).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: 'part',
+        partInstanceId: 'part-battery',
+        endDate: '2026-09-22',
+        endOdometerKm: 160000,
+        terms: 'Cobertura integral de fabricação.',
+        documentUrl: 'https://example.com/garantia-bateria',
+        observations: 'Nota fiscal arquivada.'
+      }),
+      expect.objectContaining({
+        type: 'service',
+        maintenanceOccurrenceId: 'occ-oil',
+        endDate: '2027-09-22'
+      })
+    ])
+  );
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();

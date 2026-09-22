@@ -84,7 +84,7 @@ Os arquivos não precisam ser renomeados para refletir status.
 - [x] [TASK-048 — Completar fluxo e integridade da conclusão de manutenção](./TASK-048-maintenance-completion-integrity.md) — GAP-001/002/008
 - [x] [TASK-049 — Implementar ciclo operacional completo de peças](./TASK-049-parts-operational-lifecycle.md) — GAP-003/023/024 — depende de TASK-048
 - [x] [TASK-050 — Completar problemas, inspeções e estados de manutenção](./TASK-050-issues-inspections-maintenance-states.md) — GAP-004/005/012/013 — depende de TASK-048
-- [ ] [TASK-051 — Completar ciclo de garantias](./TASK-051-warranty-lifecycle.md) — GAP-006/007 — depende de TASK-048/049
+- [x] [TASK-051 — Completar ciclo de garantias](./TASK-051-warranty-lifecycle.md) — GAP-006/007 — depende de TASK-048/049
 - [ ] [TASK-052 — Tornar persistência, sincronização e conflitos confiáveis](./TASK-052-persistence-sync-conflicts.md) — GAP-009/019/028
 - [ ] [TASK-053 — Completar estornos, financeiro e dados do dashboard](./TASK-053-refunds-financial-dashboard.md) — GAP-010/029/030 — depende de TASK-048
 - [ ] [TASK-054 — Completar recorrência e histórico do odômetro](./TASK-054-odometer-and-recurrence-history.md) — GAP-011/014/015

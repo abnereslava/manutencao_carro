@@ -17,7 +17,8 @@ import {
   saveComponentStateChange,
   saveIssueChange,
   saveMaintenancePlanStateChange,
-  saveMaintenanceCompletion
+  saveMaintenanceCompletion,
+  saveWarrantyChange
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
 import { deriveAlerts, mergeAlertState } from '../../domain/alerts';
@@ -105,6 +106,22 @@ interface DataContextValue {
     id: string,
     status: Extract<MaintenancePlan['status'], 'pending' | 'in_progress'>
   ) => Promise<void>;
+  saveWarranty: (
+    input: Pick<
+      Warranty,
+      | 'type'
+      | 'partInstanceId'
+      | 'maintenanceOccurrenceId'
+      | 'startDate'
+      | 'startOdometerKm'
+      | 'endDate'
+      | 'endOdometerKm'
+      | 'provider'
+      | 'terms'
+      | 'documentUrl'
+      | 'observations'
+    > & { id?: string }
+  ) => Promise<string>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => void;
@@ -804,6 +821,62 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
+  const saveWarranty: DataContextValue['saveWarranty'] = async (input) => {
+    const current = data;
+    const existing = input.id
+      ? current.warranties.find((warranty) => warranty.id === input.id)
+      : undefined;
+    if (input.id && !existing) throw new Error('Garantia não encontrada.');
+    if (!input.endDate && input.endOdometerKm === undefined)
+      throw new Error('Informe o vencimento da garantia por data, KM ou ambos.');
+    if (input.type === 'part' && !input.partInstanceId)
+      throw new Error('Selecione a peça vinculada à garantia.');
+    if (input.type === 'service' && !input.maintenanceOccurrenceId)
+      throw new Error('Selecione a manutenção vinculada à garantia.');
+    if (input.startDate && input.endDate && input.endDate < input.startDate)
+      throw new Error('A data final não pode ser anterior à data inicial.');
+    if (
+      input.startOdometerKm !== undefined &&
+      input.endOdometerKm !== undefined &&
+      input.endOdometerKm < input.startOdometerKm
+    )
+      throw new Error('O KM final não pode ser anterior ao KM inicial.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para salvar esta garantia.');
+    const warranty: Warranty = {
+      ...(existing ?? audit()),
+      id: existing?.id ?? uid('warranty'),
+      type: input.type,
+      partInstanceId: input.type === 'part' ? input.partInstanceId : undefined,
+      maintenanceOccurrenceId: input.type === 'service' ? input.maintenanceOccurrenceId : undefined,
+      startDate: input.startDate,
+      startOdometerKm: input.startOdometerKm,
+      endDate: input.endDate,
+      endOdometerKm: input.endOdometerKm,
+      provider: input.provider?.trim() || undefined,
+      terms: input.terms?.trim() || undefined,
+      documentUrl: input.documentUrl?.trim() || undefined,
+      observations: input.observations.trim(),
+      revision: existing ? existing.revision + 1 : 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    const base = {
+      ...current,
+      warranties: existing
+        ? current.warranties.map((item) => (item.id === warranty.id ? warranty : item))
+        : [warranty, ...current.warranties]
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    const removedAlertIds = current.alerts
+      .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+      .map((alert) => alert.id);
+    if (database.current)
+      await saveWarrantyChange(database.current, warranty, next.alerts, removedAlertIds);
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+    return warranty.id;
+  };
   const addDocument: DataContextValue['addDocument'] = (input) =>
     persist((current) => {
       const document = {
@@ -862,6 +935,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       saveIssue,
       setIssueStatus,
       setMaintenanceStatus,
+      saveWarranty,
       addDocument,
       markAlertSeen,
       snoozeAlert,

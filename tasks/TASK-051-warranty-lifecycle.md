@@ -1,6 +1,6 @@
 # TASK-051 — Completar ciclo de garantias
 
-**Status:** TODO
+**Status:** DONE
 
 **GAPs:** GAP-006, GAP-007
 
@@ -16,14 +16,14 @@ Implementar cadastro, edição, vínculos, estado e alertas de garantias de peç
 
 ## Entregas
 
-- Garantia por data, KM ou combinação
-- Prestador, termos, URL/documento e observações
-- Vínculo com peça ou ocorrência
-- Correção de vencimento por data para `days <= 0`
-- Alertas e estados recalculados
+- [x] Garantia por data, KM ou combinação
+- [x] Prestador, termos, URL/documento e observações
+- [x] Vínculo com peça ou ocorrência
+- [x] Correção de vencimento por data para `days <= 0`
+- [x] Alertas e estados recalculados
 
 ## Critérios de aceite
 
-- Garantia vencida hoje aparece como vencida
-- Critério combinado vence pelo primeiro limite
-- Criação e edição persistem todos os campos
+- [x] Garantia vencida hoje aparece como vencida
+- [x] Critério combinado vence pelo primeiro limite
+- [x] Criação e edição persistem todos os campos

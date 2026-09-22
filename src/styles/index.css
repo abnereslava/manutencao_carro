@@ -1495,6 +1495,50 @@ main {
   margin: 5px 0 10px;
   color: var(--color-text-secondary);
 }
+.warranty-manager {
+  margin-bottom: 24px;
+}
+.warranty-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.warranty-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+}
+.warranty-card > svg {
+  color: var(--color-status-ok);
+}
+.warranty-card.upcoming > svg {
+  color: var(--color-status-warning);
+}
+.warranty-card.expired > svg {
+  color: var(--color-status-danger);
+}
+.warranty-card h3,
+.warranty-card p {
+  margin: 0;
+}
+.warranty-card p,
+.warranty-card span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .warranty-list {
+    grid-template-columns: 1fr;
+  }
+  .warranty-card {
+    grid-template-columns: auto 1fr;
+  }
+  .warranty-card .button {
+    grid-column: 1 / -1;
+  }
+}
 .parts-toolbar .field {
   min-width: 220px;
 }
