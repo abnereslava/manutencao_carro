@@ -1,6 +1,6 @@
 # TASK-057 — Completar filtros, rascunhos e proteção de navegação
 
-**Status:** TODO
+**Status:** DONE
 
 **GAPs:** GAP-025, GAP-026, GAP-027
 
@@ -16,14 +16,21 @@ Preservar preferências e trabalho em andamento sem produzir efeitos de domínio
 
 ## Entregas
 
-- `persistentFilters` controla busca, filtros, ordenação, visualização e aba
-- Limpar filtros e restaurar padrão
-- Autosave em todos os formulários extensos previstos
-- Feedback de salvamento de rascunho
-- Aviso de saída ou informação de retomada segura
+- [x] `persistentFilters` controla busca, filtros, agrupamento, visualização e aba
+- [x] Limpar filtros e restaurar padrão
+- [x] Autosave em todos os formulários extensos previstos
+- [x] Feedback de salvamento de rascunho
+- [x] Informação de retomada segura e descarte explícito quando aplicável
 
 ## Critérios de aceite
 
-- Rascunho não gera histórico, custo, alerta nem ação de peça
-- Dados digitados não são perdidos silenciosamente
-- Preferências respeitam a configuração global
+- [x] Rascunho não gera histórico, custo, alerta nem ação de peça
+- [x] Dados digitados não são perdidos silenciosamente
+- [x] Preferências respeitam a configuração global
+
+## Validação
+
+- [x] Build de produção
+- [x] 25 testes unitários
+- [x] 35 cenários E2E aprovados e 1 ignorado
+- [x] Typecheck, lint e formatação

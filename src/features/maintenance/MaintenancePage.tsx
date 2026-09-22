@@ -24,6 +24,8 @@ import {
   Textarea
 } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
+import { usePersistentState } from '../../hooks/usePersistentState';
+import { useDraft } from '../../hooks/useDraft';
 import { formatDate, formatKm, todayISO } from '../../lib/format';
 import type { Issue } from '../../types/domain';
 
@@ -48,9 +50,21 @@ export function statusTone(status: string) {
 export function MaintenancePage() {
   const { data } = useData();
   const location = useLocation();
-  const initialTab = new URLSearchParams(location.search).get('tab') ?? 'all';
-  const [tab, setTab] = useState(initialTab);
-  const [query, setQuery] = useState('');
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const initialTab = requestedTab ?? 'all';
+  const defaults = { tab: initialTab, query: '' };
+  const {
+    value: preferences,
+    setValue: setPreferences,
+    reset
+  } = usePersistentState(
+    'maintenance',
+    defaults,
+    data.settings.persistentFilters,
+    requestedTab ? { tab: requestedTab } : undefined
+  );
+  const { tab, query } = preferences;
+  const clearFilters = () => setPreferences({ ...preferences, query: '' });
   const plans = useMemo(
     () =>
       data.maintenancePlans.filter((item) => {
@@ -89,12 +103,12 @@ export function MaintenancePage() {
             aria-label="Buscar manutenções"
             placeholder="Buscar manutenção ou componente"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => setPreferences({ ...preferences, query: e.target.value })}
           />
         </label>
         <Tabs
           active={tab}
-          onChange={setTab}
+          onChange={(value) => setPreferences({ ...preferences, tab: value })}
           items={[
             { id: 'all', label: 'Visão geral', count: data.maintenancePlans.length },
             { id: 'overdue', label: 'Vencidas', count: counts('overdue') },
@@ -115,6 +129,12 @@ export function MaintenancePage() {
             }
           ]}
         />
+        <Button variant="secondary" onClick={clearFilters}>
+          Limpar filtros
+        </Button>
+        <Button variant="ghost" onClick={reset}>
+          Restaurar padrão
+        </Button>
       </div>
       {tab === 'issues' ? (
         <IssuesList />
@@ -161,8 +181,7 @@ export function MaintenancePage() {
             <Button
               variant="secondary"
               onClick={() => {
-                setQuery('');
-                setTab('all');
+                setPreferences({ tab: 'all', query: '' });
               }}
             >
               Limpar filtros
@@ -212,31 +231,36 @@ function IssuesList() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Issue>();
-  const [draft, setDraft] = useState<IssueDraft>(() =>
-    emptyIssueDraft(data.vehicle.currentOdometer)
-  );
+  const initialIssueDraft = emptyIssueDraft(data.vehicle.currentOdometer);
+  const {
+    value: draft,
+    setValue: setDraft,
+    status: draftStatus,
+    hasDraft,
+    clear: clearDraft,
+    discard: discardDraft
+  } = useDraft<IssueDraft>('new-issue', initialIssueDraft, !selected);
   const [confirmStatus, setConfirmStatus] = useState<Issue['status']>();
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const openIssue = (issue?: Issue) => {
     setSelected(issue);
-    setDraft(
-      issue
-        ? {
-            title: issue.title,
-            description: issue.description,
-            componentDefinitionId: issue.componentDefinitionId ?? '',
-            relatedPartInstanceId: issue.relatedPartInstanceIds?.[0] ?? '',
-            relatedMaintenancePlanId: issue.relatedMaintenancePlanId ?? '',
-            priority: issue.priority,
-            identifiedDate: issue.identifiedDate,
-            identifiedOdometerKm:
-              issue.identifiedOdometerKm === undefined ? '' : String(issue.identifiedOdometerKm),
-            observations: issue.observations
-          }
-        : emptyIssueDraft(data.vehicle.currentOdometer)
-    );
+    if (issue) {
+      discardDraft();
+      setDraft({
+        title: issue.title,
+        description: issue.description,
+        componentDefinitionId: issue.componentDefinitionId ?? '',
+        relatedPartInstanceId: issue.relatedPartInstanceIds?.[0] ?? '',
+        relatedMaintenancePlanId: issue.relatedMaintenancePlanId ?? '',
+        priority: issue.priority,
+        identifiedDate: issue.identifiedDate,
+        identifiedOdometerKm:
+          issue.identifiedOdometerKm === undefined ? '' : String(issue.identifiedOdometerKm),
+        observations: issue.observations
+      });
+    } else if (!hasDraft) setDraft(initialIssueDraft);
     setConfirmStatus(undefined);
     setError('');
     setOpen(true);
@@ -262,6 +286,8 @@ function IssuesList() {
           draft.identifiedOdometerKm === '' ? undefined : Number(draft.identifiedOdometerKm),
         observations: draft.observations
       });
+      clearDraft();
+      setDraft(initialIssueDraft);
       setOpen(false);
       toast(selected ? 'Problema atualizado.' : 'Problema registrado.');
     } catch (submitError) {
@@ -365,7 +391,11 @@ function IssuesList() {
       )}
       <Modal
         open={open}
-        onClose={() => !saving && setOpen(false)}
+        onClose={() => {
+          if (saving) return;
+          if (selected) discardDraft();
+          setOpen(false);
+        }}
         title={selected ? selected.title : 'Novo problema'}
         size="wide"
       >
@@ -551,7 +581,24 @@ function IssuesList() {
             </p>
           )}
           <div className="form-actions">
-            <Button type="button" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>
+            {!selected && (
+              <span className={`draft-status ${draftStatus}`}>
+                {draftStatus === 'saving'
+                  ? 'Salvando rascunho…'
+                  : draftStatus === 'saved'
+                    ? 'Rascunho salvo — você pode sair e retomar depois.'
+                    : ''}
+              </span>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => {
+                if (selected) discardDraft();
+                setOpen(false);
+              }}
+            >
               Cancelar
             </Button>
             <Button type="submit" disabled={saving}>

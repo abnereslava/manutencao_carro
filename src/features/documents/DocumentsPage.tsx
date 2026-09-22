@@ -12,6 +12,7 @@ import { useData } from '../../app/providers/DataProvider';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card, Input, Modal, Select, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
+import { useDraft } from '../../hooks/useDraft';
 import { formatDate, formatMoney } from '../../lib/format';
 import type { DocumentRecord } from '../../types/domain';
 
@@ -61,7 +62,15 @@ function typeLabel(document: DocumentRecord) {
 export function DocumentsPage() {
   const { data, saveDocument, removeDocument } = useData();
   const { toast } = useToast();
-  const [form, setForm] = useState<DocumentForm>(emptyForm);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const {
+    value: form,
+    setValue: setForm,
+    status: draftStatus,
+    hasDraft,
+    clear: clearDraft,
+    discard: discardDraft
+  } = useDraft<DocumentForm>('new-document', emptyForm(), !editingDocumentId);
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,11 +78,14 @@ export function DocumentsPage() {
   const [error, setError] = useState('');
 
   const close = () => {
+    if (form.id) discardDraft();
+    setEditingDocumentId(null);
     setOpen(false);
     setError('');
-    setForm(emptyForm());
   };
   const startEdit = (document: DocumentRecord) => {
+    discardDraft();
+    setEditingDocumentId(document.id);
     setForm({
       id: document.id,
       name: document.name,
@@ -117,7 +129,10 @@ export function DocumentsPage() {
         observations: form.observations
       });
       toast(form.id ? 'Documento atualizado e sincronizado.' : 'Documento sincronizado.');
-      close();
+      clearDraft();
+      setForm(emptyForm());
+      setEditingDocumentId(null);
+      setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível salvar o documento.');
     } finally {
@@ -148,7 +163,8 @@ export function DocumentsPage() {
         actions={
           <Button
             onClick={() => {
-              setForm(emptyForm());
+              setEditingDocumentId(null);
+              if (!hasDraft) setForm(emptyForm());
               setOpen(true);
             }}
           >
@@ -345,6 +361,15 @@ export function DocumentsPage() {
           </div>
           {error && <p className="field-error">{error}</p>}
           <div className="form-actions">
+            {!form.id && (
+              <span className={`draft-status ${draftStatus}`}>
+                {draftStatus === 'saving'
+                  ? 'Salvando rascunho…'
+                  : draftStatus === 'saved'
+                    ? 'Rascunho salvo — você pode sair e retomar depois.'
+                    : ''}
+              </span>
+            )}
             <Button type="button" variant="ghost" disabled={saving} onClick={close}>
               Cancelar
             </Button>

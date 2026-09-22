@@ -599,6 +599,69 @@ test('exclusão histórica faz rollback seguro de uma substituição A para B', 
   expect(result.plan.nextDueKm).toBeUndefined();
 });
 
+test('filtros persistem somente quando a preferência global está ativa', async ({ page }) => {
+  await page.goto('./#/parts');
+  await page.getByRole('tab', { name: /Todas as peças/ }).click();
+  await page.getByLabel('Buscar peças').fill('Moura');
+  await page.getByLabel('Sistema').selectOption('Elétrica');
+  await page.goto('./#/documents');
+  await page.goto('./#/parts');
+  await expect(page.getByLabel('Buscar peças')).toHaveValue('Moura');
+  await expect(page.getByLabel('Sistema')).toHaveValue('Elétrica');
+
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await expect(page.getByLabel('Buscar peças')).toHaveValue('');
+  await expect(page.getByRole('tab', { name: /Todas as peças/ })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+  await page.getByRole('button', { name: 'Restaurar padrão' }).click();
+  await expect(page.getByRole('tab', { name: 'Visão do carro' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
+
+  await page.goto('./#/settings');
+  await page.getByLabel('Lembrar buscas, filtros, agrupamentos e abas neste dispositivo').uncheck();
+  await page.getByRole('button', { name: 'Salvar preferências' }).click();
+  await page.goto('./#/parts');
+  await page.getByLabel('Buscar peças').fill('Cobreq');
+  await page.goto('./#/documents');
+  await page.goto('./#/parts');
+  await expect(page.getByLabel('Buscar peças')).toHaveValue('');
+});
+
+test('rascunhos extensos são retomados sem criar efeitos de domínio', async ({ page }) => {
+  await page.goto('./#/maintenance/new');
+  await page.getByLabel('Título').fill('Rascunho de revisão futura');
+  await page.getByLabel('Descrição').fill('Ainda não deve virar manutenção.');
+  await expect(page.getByText(/Rascunho salvo — você pode sair/)).toBeVisible();
+  const before = await page.evaluate(() => ({
+    domain: localStorage.getItem('carango-demo-data-v1'),
+    draft: sessionStorage.getItem('carango-draft-new-maintenance')
+  }));
+  expect(before.domain).toBeNull();
+  expect(before.draft).toContain('Rascunho de revisão futura');
+
+  await page.getByRole('button', { name: 'Cancelar' }).click();
+  await page.goto('./#/maintenance/new');
+  await expect(page.getByLabel('Título')).toHaveValue('Rascunho de revisão futura');
+  await expect(page.getByLabel('Descrição')).toHaveValue('Ainda não deve virar manutenção.');
+
+  await page.goto('./#/documents');
+  await page.getByRole('button', { name: 'Novo documento' }).click();
+  await page.getByLabel('Nome').fill('Documento ainda não confirmado');
+  await expect(page.getByText(/Rascunho salvo — você pode sair/)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancelar' }).click();
+  await page.goto('./#/maintenance');
+  await page.goto('./#/documents');
+  await page.getByRole('button', { name: 'Novo documento' }).click();
+  await expect(page.getByLabel('Nome')).toHaveValue('Documento ainda não confirmado');
+
+  const after = await page.evaluate(() => localStorage.getItem('carango-demo-data-v1'));
+  expect(after).toBeNull();
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();

@@ -375,7 +375,7 @@ export function NewMaintenancePage() {
               {status === 'saving'
                 ? 'Salvando rascunho…'
                 : status === 'saved'
-                  ? 'Rascunho salvo'
+                  ? 'Rascunho salvo — você pode sair e retomar depois.'
                   : ''}
             </span>
             {submitError && <span className="field-error">{submitError}</span>}

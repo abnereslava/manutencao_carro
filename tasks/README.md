@@ -90,7 +90,7 @@ Os arquivos não precisam ser renomeados para refletir status.
 - [x] [TASK-054 — Completar recorrência e histórico do odômetro](./TASK-054-odometer-and-recurrence-history.md) — GAP-011/014/015
 - [x] [TASK-055 — Completar documentos, histórico unificado e recomposição](./TASK-055-documents-unified-history-rollback.md) — GAP-016/017/018 — depende de TASK-054
 - [x] [TASK-056 — Completar ciclo e contexto dos alertas](./TASK-056-alert-lifecycle-context.md) — GAP-020/021/022 — depende de TASK-049/051
-- [ ] [TASK-057 — Completar filtros, rascunhos e proteção de navegação](./TASK-057-drafts-filters-navigation-safety.md) — GAP-025/026/027 — depende de TASK-052
+- [x] [TASK-057 — Completar filtros, rascunhos e proteção de navegação](./TASK-057-drafts-filters-navigation-safety.md) — GAP-025/026/027 — depende de TASK-052
 - [ ] [TASK-058 — Ampliar regressão e validar release após os GAPs](./TASK-058-gap-regression-release.md) — seção 7/8 — depende de TASK-048 a TASK-057
 
 ## Regra de conclusão

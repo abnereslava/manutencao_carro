@@ -23,6 +23,7 @@ import {
 } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { calculateExpense } from '../../domain/expenses';
+import { usePersistentState } from '../../hooks/usePersistentState';
 import { formatDate, formatMoney, todayISO } from '../../lib/format';
 import type { MaintenanceOccurrence } from '../../types/domain';
 
@@ -73,12 +74,25 @@ export function ExpensesPage() {
   const { data, saveRefund, removeRefund } = useData();
   const { toast } = useToast();
   const today = todayISO();
-  const [period, setPeriod] = useState<PeriodFilter>('history');
-  const [grouping, setGrouping] = useState<Grouping>('category');
-  const [category, setCategory] = useState('all');
-  const [system, setSystem] = useState('all');
-  const [component, setComponent] = useState('all');
-  const [maintenance, setMaintenance] = useState('all');
+  const defaults = {
+    period: 'history' as PeriodFilter,
+    grouping: 'category' as Grouping,
+    category: 'all',
+    system: 'all',
+    component: 'all',
+    maintenance: 'all'
+  };
+  const {
+    value: preferences,
+    setValue: setPreferences,
+    reset
+  } = usePersistentState('expenses', defaults, data.settings.persistentFilters);
+  const { period, grouping, category, system, component, maintenance } = preferences;
+  const setPreference = <K extends keyof typeof preferences>(
+    key: K,
+    value: (typeof preferences)[K]
+  ) => setPreferences({ ...preferences, [key]: value });
+  const clearFilters = () => setPreferences({ ...defaults, grouping: preferences.grouping });
   const [selected, setSelected] = useState<FinancialRow | null>(null);
   const [refundType, setRefundType] = useState<'partial' | 'full'>('partial');
   const [refundAmount, setRefundAmount] = useState('');
@@ -282,7 +296,7 @@ export function ExpensesPage() {
         <Select
           label="Período"
           value={period}
-          onChange={(event) => setPeriod(event.target.value as PeriodFilter)}
+          onChange={(event) => setPreference('period', event.target.value as PeriodFilter)}
         >
           <option value="history">Todo o histórico</option>
           <option value="current_month">Mês atual</option>
@@ -305,7 +319,7 @@ export function ExpensesPage() {
         <Select
           label="Agrupar por"
           value={grouping}
-          onChange={(event) => setGrouping(event.target.value as Grouping)}
+          onChange={(event) => setPreference('grouping', event.target.value as Grouping)}
         >
           <option value="category">Categoria</option>
           <option value="maintenance">Manutenção</option>
@@ -317,14 +331,18 @@ export function ExpensesPage() {
         <Select
           label="Categoria"
           value={category}
-          onChange={(event) => setCategory(event.target.value)}
+          onChange={(event) => setPreference('category', event.target.value)}
         >
           <option value="all">Todas</option>
           {categories.map((item) => (
             <option key={item}>{item}</option>
           ))}
         </Select>
-        <Select label="Sistema" value={system} onChange={(event) => setSystem(event.target.value)}>
+        <Select
+          label="Sistema"
+          value={system}
+          onChange={(event) => setPreference('system', event.target.value)}
+        >
           <option value="all">Todos</option>
           {systems.map((item) => (
             <option key={item}>{item}</option>
@@ -333,7 +351,7 @@ export function ExpensesPage() {
         <Select
           label="Componente"
           value={component}
-          onChange={(event) => setComponent(event.target.value)}
+          onChange={(event) => setPreference('component', event.target.value)}
         >
           <option value="all">Todos</option>
           {components.map((item) => (
@@ -343,7 +361,7 @@ export function ExpensesPage() {
         <Select
           label="Manutenção"
           value={maintenance}
-          onChange={(event) => setMaintenance(event.target.value)}
+          onChange={(event) => setPreference('maintenance', event.target.value)}
         >
           <option value="all">Todas</option>
           {plans.map((plan) => (
@@ -352,6 +370,12 @@ export function ExpensesPage() {
             </option>
           ))}
         </Select>
+        <Button variant="secondary" onClick={clearFilters}>
+          Limpar filtros
+        </Button>
+        <Button variant="ghost" onClick={reset}>
+          Restaurar padrão
+        </Button>
       </Card>
       <div className="money-cards">
         <Card>

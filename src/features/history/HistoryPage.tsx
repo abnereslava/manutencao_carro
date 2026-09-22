@@ -18,6 +18,7 @@ import { PageHeader } from '../../components/layout/AppShell';
 import { Button, EmptyState, Input, Modal, Select, Tabs, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { analyzeOccurrenceDependencies, deriveTimeline } from '../../domain/history';
+import { usePersistentState } from '../../hooks/usePersistentState';
 import { formatDate, formatKm, todayISO } from '../../lib/format';
 import { WarrantyManager } from '../warranties/WarrantyManager';
 
@@ -48,15 +49,29 @@ const categoryLabels: Record<string, string> = {
 export function HistoryPage() {
   const { data, updateOccurrence, removeOccurrence } = useData();
   const { toast } = useToast();
-  const [type, setType] = useState('all');
-  const [query, setQuery] = useState('');
-  const [period, setPeriod] = useState('all');
-  const [system, setSystem] = useState('all');
-  const [component, setComponent] = useState('all');
-  const [part, setPart] = useState('all');
-  const [position, setPosition] = useState('all');
-  const [maintenance, setMaintenance] = useState('all');
-  const [issue, setIssue] = useState('all');
+  const defaults = {
+    type: 'all',
+    query: '',
+    period: 'all',
+    system: 'all',
+    component: 'all',
+    part: 'all',
+    position: 'all',
+    maintenance: 'all',
+    issue: 'all'
+  };
+  const {
+    value: preferences,
+    setValue: setPreferences,
+    reset
+  } = usePersistentState('history', defaults, data.settings.persistentFilters);
+  const { type, query, period, system, component, part, position, maintenance, issue } =
+    preferences;
+  const setPreference = (key: keyof typeof preferences, value: string) => {
+    setPreferences({ ...preferences, [key]: value });
+    setVisible(12);
+  };
+  const clearFilters = () => setPreferences({ ...defaults, type: preferences.type });
   const [visible, setVisible] = useState(12);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -174,15 +189,12 @@ export function HistoryPage() {
             aria-label="Buscar no histórico"
             placeholder="Buscar evento, peça ou manutenção"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => setPreference('query', event.target.value)}
           />
         </label>
         <Tabs
           active={type}
-          onChange={(value) => {
-            setType(value);
-            setVisible(12);
-          }}
+          onChange={(value) => setPreference('type', value)}
           items={[
             { id: 'all', label: 'Tudo', count: events.length },
             { id: 'maintenance', label: 'Manutenções' },
@@ -197,7 +209,11 @@ export function HistoryPage() {
         />
       </div>
       <div className="history-filters">
-        <Select label="Período" value={period} onChange={(event) => setPeriod(event.target.value)}>
+        <Select
+          label="Período"
+          value={period}
+          onChange={(event) => setPreference('period', event.target.value)}
+        >
           <option value="all">Todo o histórico</option>
           <option value="current_month">Mês atual</option>
           <option value="current_year">Ano atual</option>
@@ -208,7 +224,11 @@ export function HistoryPage() {
             </option>
           ))}
         </Select>
-        <Select label="Sistema" value={system} onChange={(event) => setSystem(event.target.value)}>
+        <Select
+          label="Sistema"
+          value={system}
+          onChange={(event) => setPreference('system', event.target.value)}
+        >
           <option value="all">Todos</option>
           {systems.map((value) => (
             <option value={value} key={value}>
@@ -219,7 +239,7 @@ export function HistoryPage() {
         <Select
           label="Componente"
           value={component}
-          onChange={(event) => setComponent(event.target.value)}
+          onChange={(event) => setPreference('component', event.target.value)}
         >
           <option value="all">Todos</option>
           {SANDERO_COMPONENTS.map((item) => (
@@ -228,7 +248,11 @@ export function HistoryPage() {
             </option>
           ))}
         </Select>
-        <Select label="Peça" value={part} onChange={(event) => setPart(event.target.value)}>
+        <Select
+          label="Peça"
+          value={part}
+          onChange={(event) => setPreference('part', event.target.value)}
+        >
           <option value="all">Todas</option>
           {data.parts.map((item) => (
             <option value={item.id} key={item.id}>
@@ -239,7 +263,7 @@ export function HistoryPage() {
         <Select
           label="Posição"
           value={position}
-          onChange={(event) => setPosition(event.target.value)}
+          onChange={(event) => setPreference('position', event.target.value)}
         >
           <option value="all">Todas</option>
           {VEHICLE_POSITIONS.map((item) => (
@@ -251,7 +275,7 @@ export function HistoryPage() {
         <Select
           label="Manutenção"
           value={maintenance}
-          onChange={(event) => setMaintenance(event.target.value)}
+          onChange={(event) => setPreference('maintenance', event.target.value)}
         >
           <option value="all">Todas</option>
           {data.maintenancePlans.map((item) => (
@@ -260,7 +284,11 @@ export function HistoryPage() {
             </option>
           ))}
         </Select>
-        <Select label="Problema" value={issue} onChange={(event) => setIssue(event.target.value)}>
+        <Select
+          label="Problema"
+          value={issue}
+          onChange={(event) => setPreference('issue', event.target.value)}
+        >
           <option value="all">Todos</option>
           {data.issues.map((item) => (
             <option value={item.id} key={item.id}>
@@ -268,6 +296,12 @@ export function HistoryPage() {
             </option>
           ))}
         </Select>
+        <Button variant="secondary" onClick={clearFilters}>
+          Limpar filtros
+        </Button>
+        <Button variant="ghost" onClick={reset}>
+          Restaurar padrão
+        </Button>
       </div>
       <p className="history-result-count">
         {filtered.length} evento{filtered.length === 1 ? '' : 's'} encontrado

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -13,9 +13,10 @@ import { useData } from '../../app/providers/DataProvider';
 import { SANDERO_COMPONENTS, SYSTEMS } from '../../catalog/components/sandero';
 import { positionLabel, VEHICLE_POSITIONS } from '../../catalog/positions/vehicle-positions';
 import { PageHeader } from '../../components/layout/AppShell';
-import { Badge, Card, EmptyState, Select, Tabs } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Select, Tabs } from '../../components/ui';
 import { calculateWarrantyState } from '../../domain/warranty';
 import { isAlertActive } from '../../domain/alerts';
+import { usePersistentState } from '../../hooks/usePersistentState';
 import { todayISO } from '../../lib/format';
 
 const stateMeta = {
@@ -24,28 +25,64 @@ const stateMeta = {
   unknown: { label: 'Sem informações', tone: 'neutral' as const, icon: CircleHelp },
   notApplicable: { label: 'Não se aplica', tone: 'neutral' as const, icon: CircleHelp }
 };
+
+interface PartsPreferences {
+  tab: string;
+  query: string;
+  system: string;
+  category: string;
+  position: string;
+  componentStatus: string;
+  withHistory: boolean;
+  withWarranty: boolean;
+  warrantyUpcoming: boolean;
+  withRecurrence: boolean;
+  withAlert: boolean;
+}
+
 export function PartsPage() {
   const { data } = useData();
   const location = useLocation();
-  const initial =
-    new URLSearchParams(location.search).get('tab') ??
-    localStorage.getItem('carango-parts-tab') ??
-    'car';
-  const [tab, setTabState] = useState(initial);
-  const [query, setQuery] = useState('');
-  const [system, setSystem] = useState('');
-  const [category, setCategory] = useState('');
-  const [position, setPosition] = useState('');
-  const [componentStatus, setComponentStatus] = useState('');
-  const [withHistory, setWithHistory] = useState(false);
-  const [withWarranty, setWithWarranty] = useState(false);
-  const [warrantyUpcoming, setWarrantyUpcoming] = useState(false);
-  const [withRecurrence, setWithRecurrence] = useState(false);
-  const [withAlert, setWithAlert] = useState(false);
-  const setTab = (value: string) => {
-    setTabState(value);
-    localStorage.setItem('carango-parts-tab', value);
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const defaults: PartsPreferences = {
+    tab: requestedTab ?? 'car',
+    query: '',
+    system: '',
+    category: '',
+    position: '',
+    componentStatus: '',
+    withHistory: false,
+    withWarranty: false,
+    warrantyUpcoming: false,
+    withRecurrence: false,
+    withAlert: false
   };
+  const {
+    value: preferences,
+    setValue: setPreferences,
+    reset
+  } = usePersistentState(
+    'parts',
+    defaults,
+    data.settings.persistentFilters,
+    requestedTab ? { tab: requestedTab } : undefined
+  );
+  const {
+    tab,
+    query,
+    system,
+    category,
+    position,
+    componentStatus,
+    withHistory,
+    withWarranty,
+    warrantyUpcoming,
+    withRecurrence,
+    withAlert
+  } = preferences;
+  const setPreference = <K extends keyof PartsPreferences>(key: K, value: PartsPreferences[K]) =>
+    setPreferences({ ...preferences, [key]: value });
+  const clearFilters = () => setPreferences({ ...defaults, tab: preferences.tab });
   const items = useMemo(
     () =>
       SANDERO_COMPONENTS.filter((component) => {
@@ -146,7 +183,7 @@ export function PartsPage() {
       />
       <Tabs
         active={tab}
-        onChange={setTab}
+        onChange={(value) => setPreference('tab', value)}
         items={[
           { id: 'car', label: 'Visão do carro' },
           { id: 'all', label: 'Todas as peças', count: SANDERO_COMPONENTS.length },
@@ -162,22 +199,34 @@ export function PartsPage() {
             aria-label="Buscar peças"
             placeholder="Componente, marca, modelo, código, sistema ou posição"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => setPreference('query', e.target.value)}
           />
         </label>
-        <Select label="Sistema" value={system} onChange={(e) => setSystem(e.target.value)}>
+        <Select
+          label="Sistema"
+          value={system}
+          onChange={(e) => setPreference('system', e.target.value)}
+        >
           <option value="">Todos os sistemas</option>
           {SYSTEMS.map((item) => (
             <option key={item}>{item}</option>
           ))}
         </Select>
-        <Select label="Categoria" value={category} onChange={(e) => setCategory(e.target.value)}>
+        <Select
+          label="Categoria"
+          value={category}
+          onChange={(e) => setPreference('category', e.target.value)}
+        >
           <option value="">Todas as categorias</option>
           {categories.map((item) => (
             <option key={item}>{item}</option>
           ))}
         </Select>
-        <Select label="Posição" value={position} onChange={(e) => setPosition(e.target.value)}>
+        <Select
+          label="Posição"
+          value={position}
+          onChange={(e) => setPreference('position', e.target.value)}
+        >
           <option value="">Todas as posições</option>
           {VEHICLE_POSITIONS.map((item) => (
             <option value={item.id} key={item.id}>
@@ -188,7 +237,7 @@ export function PartsPage() {
         <Select
           label="Estado"
           value={componentStatus}
-          onChange={(e) => setComponentStatus(e.target.value)}
+          onChange={(e) => setPreference('componentStatus', e.target.value)}
         >
           <option value="">Todos os estados</option>
           <option value="installed">Instalada</option>
@@ -201,7 +250,7 @@ export function PartsPage() {
             <input
               type="checkbox"
               checked={withHistory}
-              onChange={(e) => setWithHistory(e.target.checked)}
+              onChange={(e) => setPreference('withHistory', e.target.checked)}
             />{' '}
             Possui histórico
           </label>
@@ -209,7 +258,7 @@ export function PartsPage() {
             <input
               type="checkbox"
               checked={withWarranty}
-              onChange={(e) => setWithWarranty(e.target.checked)}
+              onChange={(e) => setPreference('withWarranty', e.target.checked)}
             />{' '}
             Possui garantia
           </label>
@@ -217,7 +266,7 @@ export function PartsPage() {
             <input
               type="checkbox"
               checked={warrantyUpcoming}
-              onChange={(e) => setWarrantyUpcoming(e.target.checked)}
+              onChange={(e) => setPreference('warrantyUpcoming', e.target.checked)}
             />{' '}
             Garantia próxima
           </label>
@@ -225,7 +274,7 @@ export function PartsPage() {
             <input
               type="checkbox"
               checked={withRecurrence}
-              onChange={(e) => setWithRecurrence(e.target.checked)}
+              onChange={(e) => setPreference('withRecurrence', e.target.checked)}
             />{' '}
             Possui recorrência
           </label>
@@ -233,11 +282,17 @@ export function PartsPage() {
             <input
               type="checkbox"
               checked={withAlert}
-              onChange={(e) => setWithAlert(e.target.checked)}
+              onChange={(e) => setPreference('withAlert', e.target.checked)}
             />{' '}
             Possui alerta
           </label>
         </div>
+        <Button variant="secondary" onClick={clearFilters}>
+          Limpar filtros
+        </Button>
+        <Button variant="ghost" onClick={reset}>
+          Restaurar padrão
+        </Button>
       </div>
       {tab === 'car' && !hasFilters ? (
         <VehicleSystems />

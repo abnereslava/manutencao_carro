@@ -8,6 +8,7 @@ import { Button, Card, Input, Select, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { calculateExpense } from '../../domain/expenses';
 import { nextCycle } from '../../domain/maintenance';
+import { useDraft } from '../../hooks/useDraft';
 import { formatDate, formatKm, formatMoney, todayISO } from '../../lib/format';
 
 interface PartActionDraft {
@@ -24,6 +25,30 @@ interface PartActionDraft {
   purchasePrice: string;
   observations: string;
   essentialRemovalConfirmed: boolean;
+}
+
+interface CompletionDraft {
+  date: string;
+  km: string;
+  provider: string;
+  observations: string;
+  partsCost: string;
+  laborCost: string;
+  otherCost: string;
+  manualOverrideEnabled: boolean;
+  manualTotal: string;
+  partActions: PartActionDraft[];
+  inspectionResult: 'satisfactory' | 'attention' | 'problem';
+  inspectionObservations: string;
+  createIssueFromInspection: boolean;
+  resolveIssueIds: string[];
+  hasWarranty: boolean;
+  warrantyEndDate: string;
+  warrantyEndKm: string;
+  warrantyProvider: string;
+  warrantyTerms: string;
+  warrantyUrl: string;
+  warrantyObservations: string;
 }
 
 function newPartAction(
@@ -59,16 +84,7 @@ export function CompleteMaintenancePage() {
   const [searchParams] = useSearchParams();
   const { data, completeMaintenance } = useData();
   const { toast } = useToast();
-  const [date, setDate] = useState(todayISO());
-  const [km, setKm] = useState(String(data.vehicle.currentOdometer));
-  const [provider, setProvider] = useState('');
-  const [observations, setObservations] = useState('');
-  const [partsCost, setPartsCost] = useState('');
-  const [laborCost, setLaborCost] = useState('');
-  const [otherCost, setOtherCost] = useState('');
-  const [manualOverrideEnabled, setManualOverrideEnabled] = useState(false);
-  const [manualTotal, setManualTotal] = useState('');
-  const [partActions, setPartActions] = useState<PartActionDraft[]>(() => {
+  const requestedPartActions = () => {
     const componentDefinitionId = searchParams.get('component') ?? '';
     const requestedAction = searchParams.get('action');
     const allowedActions: PartActionDraft['action'][] = [
@@ -82,20 +98,92 @@ export function CompleteMaintenancePage() {
       allowedActions.includes(requestedAction as PartActionDraft['action'])
       ? [newPartAction(componentDefinitionId, requestedAction as PartActionDraft['action'])]
       : [];
-  });
-  const [inspectionResult, setInspectionResult] = useState<
-    'satisfactory' | 'attention' | 'problem'
-  >('satisfactory');
-  const [inspectionObservations, setInspectionObservations] = useState('');
-  const [createIssueFromInspection, setCreateIssueFromInspection] = useState(false);
-  const [resolveIssueIds, setResolveIssueIds] = useState<string[]>([]);
-  const [hasWarranty, setHasWarranty] = useState(false);
-  const [warrantyEndDate, setWarrantyEndDate] = useState('');
-  const [warrantyEndKm, setWarrantyEndKm] = useState('');
-  const [warrantyProvider, setWarrantyProvider] = useState('');
-  const [warrantyTerms, setWarrantyTerms] = useState('');
-  const [warrantyUrl, setWarrantyUrl] = useState('');
-  const [warrantyObservations, setWarrantyObservations] = useState('');
+  };
+  const initialDraft: CompletionDraft = {
+    date: todayISO(),
+    km: String(data.vehicle.currentOdometer),
+    provider: '',
+    observations: '',
+    partsCost: '',
+    laborCost: '',
+    otherCost: '',
+    manualOverrideEnabled: false,
+    manualTotal: '',
+    partActions: requestedPartActions(),
+    inspectionResult: 'satisfactory',
+    inspectionObservations: '',
+    createIssueFromInspection: false,
+    resolveIssueIds: [],
+    hasWarranty: false,
+    warrantyEndDate: '',
+    warrantyEndKm: '',
+    warrantyProvider: '',
+    warrantyTerms: '',
+    warrantyUrl: '',
+    warrantyObservations: ''
+  };
+  const {
+    value: draft,
+    setValue: setDraft,
+    status: draftStatus,
+    clear
+  } = useDraft(`complete-maintenance-${id ?? 'unknown'}`, initialDraft);
+  const updateDraft = <K extends keyof CompletionDraft>(
+    key: K,
+    next: CompletionDraft[K] | ((current: CompletionDraft[K]) => CompletionDraft[K])
+  ) =>
+    setDraft((current) => ({
+      ...current,
+      [key]: typeof next === 'function' ? next(current[key]) : next
+    }));
+  const {
+    date,
+    km,
+    provider,
+    observations,
+    partsCost,
+    laborCost,
+    otherCost,
+    manualOverrideEnabled,
+    manualTotal,
+    partActions,
+    inspectionResult,
+    inspectionObservations,
+    createIssueFromInspection,
+    resolveIssueIds,
+    hasWarranty,
+    warrantyEndDate,
+    warrantyEndKm,
+    warrantyProvider,
+    warrantyTerms,
+    warrantyUrl,
+    warrantyObservations
+  } = draft;
+  const setDate = (value: string) => updateDraft('date', value);
+  const setKm = (value: string) => updateDraft('km', value);
+  const setProvider = (value: string) => updateDraft('provider', value);
+  const setObservations = (value: string) => updateDraft('observations', value);
+  const setPartsCost = (value: string) => updateDraft('partsCost', value);
+  const setLaborCost = (value: string) => updateDraft('laborCost', value);
+  const setOtherCost = (value: string) => updateDraft('otherCost', value);
+  const setManualOverrideEnabled = (value: boolean) => updateDraft('manualOverrideEnabled', value);
+  const setManualTotal = (value: string) => updateDraft('manualTotal', value);
+  const setPartActions = (value: React.SetStateAction<PartActionDraft[]>) =>
+    updateDraft('partActions', value);
+  const setInspectionResult = (value: CompletionDraft['inspectionResult']) =>
+    updateDraft('inspectionResult', value);
+  const setInspectionObservations = (value: string) => updateDraft('inspectionObservations', value);
+  const setCreateIssueFromInspection = (value: boolean) =>
+    updateDraft('createIssueFromInspection', value);
+  const setResolveIssueIds = (value: React.SetStateAction<string[]>) =>
+    updateDraft('resolveIssueIds', value);
+  const setHasWarranty = (value: boolean) => updateDraft('hasWarranty', value);
+  const setWarrantyEndDate = (value: string) => updateDraft('warrantyEndDate', value);
+  const setWarrantyEndKm = (value: string) => updateDraft('warrantyEndKm', value);
+  const setWarrantyProvider = (value: string) => updateDraft('warrantyProvider', value);
+  const setWarrantyTerms = (value: string) => updateDraft('warrantyTerms', value);
+  const setWarrantyUrl = (value: string) => updateDraft('warrantyUrl', value);
+  const setWarrantyObservations = (value: string) => updateDraft('warrantyObservations', value);
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const plan = data.maintenancePlans.find((item) => item.id === id);
@@ -230,6 +318,7 @@ export function CompleteMaintenancePage() {
             : undefined,
         resolveIssueIds
       });
+      clear();
       toast('Manutenção concluída e próximo ciclo recalculado.');
       navigate(`/maintenance/${plan.id}`, { replace: true });
     } catch (error) {
@@ -698,6 +787,13 @@ export function CompleteMaintenancePage() {
             </p>
           )}
           <div className="form-actions">
+            <span className={`draft-status ${draftStatus}`}>
+              {draftStatus === 'saving'
+                ? 'Salvando rascunho…'
+                : draftStatus === 'saved'
+                  ? 'Rascunho salvo — você pode sair e retomar depois.'
+                  : ''}
+            </span>
             <Button
               type="button"
               variant="ghost"

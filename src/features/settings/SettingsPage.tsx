@@ -15,6 +15,7 @@ export function SettingsPage() {
   const { toast } = useToast();
   const [km, setKm] = useState(String(data.settings.alertKmThreshold));
   const [days, setDays] = useState(String(data.settings.alertDaysThreshold));
+  const [persistentFilters, setPersistentFilters] = useState(data.settings.persistentFilters);
   const [confirmClear, setConfirmClear] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -27,7 +28,8 @@ export function SettingsPage() {
       await updateSettings({
         ...data.settings,
         alertKmThreshold: Number(km),
-        alertDaysThreshold: Number(days)
+        alertDaysThreshold: Number(days),
+        persistentFilters
       });
       toast('Preferências de alerta sincronizadas.');
     } catch (error) {
@@ -96,6 +98,14 @@ export function SettingsPage() {
                 onChange={(e) => setDays(e.target.value)}
               />
             </div>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={persistentFilters}
+                onChange={(event) => setPersistentFilters(event.target.checked)}
+              />
+              Lembrar buscas, filtros, agrupamentos e abas neste dispositivo
+            </label>
             {saveError && <p className="field-error">{saveError}</p>}
             <Button disabled={saving} onClick={() => void saveSettings()}>
               {saving ? 'Salvando…' : 'Salvar preferências'}

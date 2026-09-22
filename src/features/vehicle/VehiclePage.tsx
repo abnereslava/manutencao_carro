@@ -5,6 +5,7 @@ import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card, Input, Modal, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { getCurrentOdometer, sortOdometerRecords } from '../../domain/odometer';
+import { useDraft } from '../../hooks/useDraft';
 import { formatDate, formatKm } from '../../lib/format';
 import type { OdometerRecord, Vehicle } from '../../types/domain';
 import { OdometerModal } from './OdometerModal';
@@ -14,7 +15,13 @@ export function VehiclePage() {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [odoOpen, setOdoOpen] = useState(false);
-  const [draft, setDraft] = useState<Vehicle>(data.vehicle);
+  const {
+    value: draft,
+    setValue: setDraft,
+    status: draftStatus,
+    clear: clearDraft,
+    discard: discardDraft
+  } = useDraft<Vehicle>('edit-vehicle', data.vehicle, editing);
   const [editingOdometer, setEditingOdometer] = useState<OdometerRecord | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +41,7 @@ export function VehiclePage() {
     setOperationError('');
     try {
       await saveVehicle(draft);
+      clearDraft();
       toast('Dados do veículo sincronizados.');
       setEditing(false);
     } catch (error) {
@@ -176,15 +184,7 @@ export function VehiclePage() {
           </Card>
         </section>
       </div>
-      <Modal
-        open={editing}
-        onClose={() => {
-          setDraft(data.vehicle);
-          setEditing(false);
-        }}
-        title="Editar veículo"
-        size="wide"
-      >
+      <Modal open={editing} onClose={() => setEditing(false)} title="Editar veículo" size="wide">
         <form onSubmit={save}>
           <div className="form-grid">
             <Input
@@ -244,7 +244,25 @@ export function VehiclePage() {
             />
           </div>
           <div className="form-actions">
+            <span className={`draft-status ${draftStatus}`}>
+              {draftStatus === 'saving'
+                ? 'Salvando rascunho…'
+                : draftStatus === 'saved'
+                  ? 'Rascunho salvo — você pode sair e retomar depois.'
+                  : ''}
+            </span>
             {operationError && <p className="field-error">{operationError}</p>}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => {
+                discardDraft();
+                setEditing(false);
+              }}
+            >
+              Descartar rascunho
+            </Button>
             <Button
               type="button"
               variant="ghost"

@@ -23,6 +23,7 @@ import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card, Collapse, Input, Modal, Select, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { calculateWarrantyState } from '../../domain/warranty';
+import { useDraft } from '../../hooks/useDraft';
 import { formatDate, formatKm, formatMoney } from '../../lib/format';
 
 interface PartEditDraft {
@@ -88,7 +89,18 @@ export function PartDetailPage() {
   const part = data.parts.find((item) => item.id === state?.currentPartInstanceId);
   const [editOpen, setEditOpen] = useState(false);
   const [applicabilityOpen, setApplicabilityOpen] = useState(false);
-  const [editDraft, setEditDraft] = useState<PartEditDraft>(() => partDraft(part));
+  const {
+    value: editDraft,
+    setValue: setEditDraft,
+    status: draftStatus,
+    hasDraft,
+    clear: clearDraft,
+    discard: discardDraft
+  } = useDraft<PartEditDraft>(
+    `edit-part-${part?.id ?? id ?? 'unknown'}`,
+    partDraft(part),
+    editOpen
+  );
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const plans = data.maintenancePlans.filter((item) => item.componentDefinitionId === id);
@@ -135,7 +147,7 @@ export function PartDetailPage() {
       : `/maintenance/new?${params.toString()}`;
   };
   const openEdit = () => {
-    setEditDraft(partDraft(part));
+    if (!hasDraft) setEditDraft(partDraft(part));
     setSubmitError('');
     setEditOpen(true);
   };
@@ -163,6 +175,7 @@ export function PartDetailPage() {
         purchasePriceCents,
         observations: editDraft.observations
       });
+      clearDraft();
       setEditOpen(false);
       toast('Peça atualizada.');
     } catch (error) {
@@ -556,6 +569,24 @@ export function PartDetailPage() {
             </p>
           )}
           <div className="form-actions">
+            <span className={`draft-status ${draftStatus}`}>
+              {draftStatus === 'saving'
+                ? 'Salvando rascunho…'
+                : draftStatus === 'saved'
+                  ? 'Rascunho salvo — você pode sair e retomar depois.'
+                  : ''}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isSubmitting}
+              onClick={() => {
+                discardDraft();
+                setEditOpen(false);
+              }}
+            >
+              Descartar rascunho
+            </Button>
             <Button
               type="button"
               variant="ghost"
