@@ -64,6 +64,40 @@ test('conclusão recorrente gera histórico e próximo ciclo', async ({ page }) 
   await expect(page.getByText('R$ 175,00', { exact: true })).toBeVisible();
 });
 
+test('estorno parcial pode virar total e ser removido sem desfazer manutenção', async ({
+  page
+}) => {
+  await page.goto('./#/expenses');
+  const expense = page.locator('.financial-row').filter({ hasText: 'Troca de óleo e filtro' });
+  await expense.getByRole('button', { name: 'Registrar estorno' }).click();
+  await page.getByLabel('Valor estornado (R$)').fill('50,00');
+  await page.getByLabel('Observação do estorno').fill('Crédito parcial do fornecedor');
+  await page.getByRole('button', { name: 'Salvar estorno' }).click();
+  await expect(expense).toContainText('Estornado R$ 50,00');
+  await expect(expense).toContainText('Líquido R$ 209,90');
+  await expect(expense).toContainText('Parcialmente estornada');
+
+  await expense.getByRole('button', { name: 'Editar estorno' }).click();
+  await page.getByLabel('Tipo de estorno').selectOption('full');
+  const saveRefundButton = page.getByRole('button', { name: 'Salvar estorno' });
+  await saveRefundButton.press('Enter');
+  await expect(expense).toContainText('Líquido R$ 0,00');
+  await expect(expense).toContainText('Estornada');
+
+  await expense.getByRole('button', { name: 'Editar estorno' }).click();
+  await page.getByRole('button', { name: 'Remover', exact: true }).click();
+  await page.getByRole('button', { name: 'Remover estorno' }).click();
+  await expect(expense).toContainText('R$ 259,90');
+  await expect(expense).toContainText('Normal');
+
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('carango-demo-data-v1') ?? '{}')
+  );
+  const occurrence = saved.occurrences.find((item: { id: string }) => item.id === 'occ-oil');
+  expect(occurrence.expense).toMatchObject({ refundStatus: 'none', refundedAmountCents: 0 });
+  expect(occurrence.partActions).toHaveLength(1);
+});
+
 test('alerta crítico não oferece adiamento quando não permitido', async ({ page }) => {
   await page.goto('./#/alerts');
   const critical = page.getByText('Correia dentada vencida').locator('..').locator('..');

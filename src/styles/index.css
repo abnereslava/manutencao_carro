@@ -366,7 +366,11 @@ main {
 }
 .button.primary:hover {
   background: var(--color-accent-hover);
-  transform: translateY(-1px);
+}
+@media (hover: hover) and (pointer: fine) {
+  .button.primary:hover {
+    transform: translateY(-1px);
+  }
 }
 .button.secondary {
   border-color: var(--color-border);
@@ -904,9 +908,17 @@ main {
     max-height: 92dvh;
     border-radius: 22px 22px 0 0;
   }
+  .modal-body {
+    max-height: calc(92dvh - 66px);
+    padding-bottom: 48px;
+  }
+  .modal-body .form-actions {
+    margin-bottom: 16px;
+  }
   .toast-region {
+    top: calc(var(--topbar) + 12px);
     right: 12px;
-    bottom: 12px;
+    bottom: auto;
     left: 12px;
   }
   .toast {
@@ -988,7 +1000,7 @@ main {
 }
 .critical-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
 .stat-card {
@@ -1203,12 +1215,23 @@ main {
   justify-content: space-around;
   gap: 9px;
 }
-.expense-bars i {
-  height: 100%;
+.expense-bars > span {
   flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: end;
+  gap: 4px;
+}
+.expense-bars i {
+  width: 100%;
   border-radius: 7px 7px 3px 3px;
   background: var(--color-accent);
   opacity: 0.85;
+}
+.expense-bars small {
+  font-size: 9px;
 }
 .recent-expense {
   display: flex;
@@ -2056,6 +2079,74 @@ main {
   justify-items: end;
   gap: 4px;
 }
+.financial-filters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 18px;
+}
+.financial-groups {
+  display: grid;
+}
+.financial-groups > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.financial-groups > div:last-child {
+  border: 0;
+}
+.financial-groups span,
+.financial-values {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.financial-row {
+  grid-template-columns: auto minmax(180px, 1fr) auto auto;
+}
+.financial-row > div:first-of-type {
+  display: grid;
+  gap: 3px;
+}
+.financial-row .badge svg {
+  width: 12px;
+}
+.refund-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.refund-summary span {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border-radius: 11px;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.refund-summary b {
+  color: var(--color-text-primary);
+  font-size: 18px;
+}
+.refund-remove {
+  width: 100%;
+  margin-bottom: 18px;
+}
+.form-note {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+}
 .document-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2595,6 +2686,9 @@ main {
   .vehicle-page-grid {
     grid-template-columns: 1fr;
   }
+  .financial-filters {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 @media (max-width: 760px) {
   .critical-grid,
@@ -2665,6 +2759,15 @@ main {
   .alert-actions > * {
     flex: 1;
   }
+  .financial-row {
+    grid-template-columns: auto 1fr;
+  }
+  .financial-row .money-row,
+  .financial-row > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-items: start;
+  }
   .login-page {
     grid-template-columns: 1fr;
   }
@@ -2699,6 +2802,10 @@ main {
     grid-template-columns: 1fr;
   }
   .expense-summary {
+    grid-template-columns: 1fr;
+  }
+  .financial-filters,
+  .refund-summary {
     grid-template-columns: 1fr;
   }
   .expense-bars {

@@ -24,6 +24,7 @@ import {
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
 import { deriveAlerts, mergeAlertState } from '../../domain/alerts';
+import { clearExpenseRefund, setExpenseRefund } from '../../domain/expenses';
 import { calculateMaintenanceStatus, nextCycle } from '../../domain/maintenance';
 import { getCurrentOdometer, validateOdometerReading } from '../../domain/odometer';
 import { installPart, removePart } from '../../domain/parts';
@@ -128,6 +129,8 @@ interface DataContextValue {
       | 'observations'
     > & { id?: string }
   ) => Promise<string>;
+  saveRefund: (occurrenceId: string, amountCents: number, notes: string) => Promise<void>;
+  removeRefund: (occurrenceId: string) => Promise<void>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => Promise<void>;
@@ -156,6 +159,7 @@ export type ConflictEntity =
   | 'odometer'
   | 'componentState'
   | 'part'
+  | 'maintenanceOccurrence'
   | 'maintenancePlan'
   | 'issue'
   | 'warranty'
@@ -166,6 +170,7 @@ export type ConflictValue =
   | OdometerRecord
   | ComponentState
   | PartInstance
+  | MaintenanceOccurrence
   | MaintenancePlan
   | Issue
   | Warranty
@@ -424,6 +429,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return repos.componentStates.get(id);
       case 'part':
         return repos.parts.get(id);
+      case 'maintenanceOccurrence':
+        return repos.maintenanceOccurrences.get(id);
       case 'maintenancePlan':
         return repos.maintenancePlans.get(id);
       case 'issue':
@@ -1215,6 +1222,42 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setDataState(next);
     return warranty.id;
   };
+  const updateRefund = async (
+    occurrenceId: string,
+    operation: { type: 'save'; amountCents: number; notes: string } | { type: 'remove' }
+  ) => {
+    const current = data;
+    const occurrence = current.occurrences.find((item) => item.id === occurrenceId);
+    if (!occurrence) throw new Error('Ocorrência de manutenção não encontrada.');
+    if (!occurrence.expense) throw new Error('Esta manutenção não possui uma despesa registrada.');
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para atualizar o estorno.');
+    const expense =
+      operation.type === 'save'
+        ? setExpenseRefund(occurrence.expense, operation.amountCents, operation.notes)
+        : clearExpenseRefund(occurrence.expense);
+    const updated: MaintenanceOccurrence = {
+      ...occurrence,
+      expense,
+      revision: occurrence.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    await runMutation(`refund:${occurrenceId}`, async () => {
+      await ensureNoConflict('maintenanceOccurrence', occurrence, updated);
+      if (repositories.current) await repositories.current.maintenanceOccurrences.save(updated);
+    });
+    const next = {
+      ...current,
+      occurrences: current.occurrences.map((item) => (item.id === occurrenceId ? updated : item))
+    };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const saveRefund: DataContextValue['saveRefund'] = (occurrenceId, amountCents, notes) =>
+    updateRefund(occurrenceId, { type: 'save', amountCents, notes });
+  const removeRefund: DataContextValue['removeRefund'] = (occurrenceId) =>
+    updateRefund(occurrenceId, { type: 'remove' });
   const addDocument: DataContextValue['addDocument'] = async (input) => {
     if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para salvar o documento.');
@@ -1323,6 +1366,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
           )
         };
         break;
+      case 'maintenanceOccurrence':
+        next = {
+          ...current,
+          occurrences: current.occurrences.map((item) =>
+            item.id === value.id ? (value as MaintenanceOccurrence) : item
+          )
+        };
+        break;
       case 'maintenancePlan':
         next = {
           ...current,
@@ -1372,6 +1423,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         break;
       case 'part':
         await repos.parts.save(value as PartInstance);
+        break;
+      case 'maintenanceOccurrence':
+        await repos.maintenanceOccurrences.save(value as MaintenanceOccurrence);
         break;
       case 'maintenancePlan':
         await repos.maintenancePlans.save(value as MaintenancePlan);
@@ -1432,6 +1486,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setIssueStatus,
       setMaintenanceStatus,
       saveWarranty,
+      saveRefund,
+      removeRefund,
       addDocument,
       markAlertSeen,
       snoozeAlert,

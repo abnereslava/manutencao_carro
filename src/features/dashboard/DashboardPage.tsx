@@ -18,8 +18,9 @@ import { getComponent } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card } from '../../components/ui';
 import { OdometerModal } from '../vehicle/OdometerModal';
-import { formatDate, formatKm, formatMoney } from '../../lib/format';
+import { formatDate, formatKm, formatMoney, todayISO } from '../../lib/format';
 import { calculateExpense, sumExpenses } from '../../domain/expenses';
+import { calculateWarrantyState } from '../../domain/warranty';
 
 export function DashboardPage() {
   const { data } = useData();
@@ -28,9 +29,57 @@ export function DashboardPage() {
   const upcoming = data.maintenancePlans.filter((item) => item.status === 'upcoming');
   const missing = data.componentStates.filter((item) => item.state === 'missing');
   const openIssues = data.issues.filter((item) => !['resolved', 'ignored'].includes(item.status));
-  const yearCosts = sumExpenses(
-    data.occurrences.map((item) => item.expense).filter((expense) => expense !== undefined)
+  const today = todayISO();
+  const overdueDocuments = data.documents.filter(
+    (item) =>
+      item.status === 'expired' ||
+      (item.status === 'pending' && item.dueDate !== undefined && item.dueDate <= today)
   );
+  const currentYear = today.slice(0, 4);
+  const yearOccurrences = data.occurrences.filter((item) =>
+    item.performedDate.startsWith(currentYear)
+  );
+  const yearDocuments = data.documents.filter(
+    (item) =>
+      (item.status === 'paid' || item.status === 'active') &&
+      (item.issueDate ?? item.dueDate ?? `${item.referenceYear}`).startsWith(currentYear)
+  );
+  const yearCosts =
+    sumExpenses(
+      yearOccurrences.map((item) => item.expense).filter((expense) => expense !== undefined)
+    ) + yearDocuments.reduce((sum, item) => sum + (item.amountCents ?? 0), 0);
+  const latestOccurrence = [...data.occurrences].sort((a, b) =>
+    b.performedDate.localeCompare(a.performedDate)
+  )[0];
+  const attentionDocument = [...data.documents]
+    .filter((item) => item.status === 'pending' || item.status === 'expired')
+    .sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31'))[0];
+  const attentionWarranty = data.warranties
+    .map((warranty) => ({
+      warranty,
+      state: calculateWarrantyState(warranty, data.vehicle.currentOdometer, today)
+    }))
+    .filter((item) => item.state !== 'active')
+    .sort((a, b) =>
+      (a.warranty.endDate ?? '9999-12-31').localeCompare(b.warranty.endDate ?? '9999-12-31')
+    )[0];
+  const monthlyTotals = new Map<string, number>();
+  yearOccurrences.forEach((occurrence) => {
+    const month = occurrence.performedDate.slice(0, 7);
+    monthlyTotals.set(
+      month,
+      (monthlyTotals.get(month) ?? 0) + calculateExpense(occurrence.expense).netAmountCents
+    );
+  });
+  yearDocuments.forEach((document) => {
+    const date = document.issueDate ?? document.dueDate ?? `${document.referenceYear}-01-01`;
+    const month = date.slice(0, 7);
+    monthlyTotals.set(month, (monthlyTotals.get(month) ?? 0) + (document.amountCents ?? 0));
+  });
+  const recentMonths = [...monthlyTotals.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-6);
+  const maxMonth = Math.max(...recentMonths.map(([, value]) => value), 1);
   return (
     <>
       <PageHeader
@@ -57,12 +106,10 @@ export function DashboardPage() {
             {data.vehicle.currentOdometer.toLocaleString('pt-BR')}
             <small> km</small>
           </strong>
-          <div className="meter">
-            <i style={{ width: '68%' }} />
-          </div>
           <p>
             <CarFront />
-            Renault Sandero Expression · 2012
+            {data.vehicle.manufacturer} {data.vehicle.model} {data.vehicle.trim} ·{' '}
+            {data.vehicle.modelYear}
           </p>
         </Card>
         <div className="critical-grid">
@@ -90,6 +137,14 @@ export function DashboardPage() {
               <span>Problemas abertos</span>
               <strong>{openIssues.length}</strong>
               <small>{openIssues[0]?.title ?? 'Nenhum problema'}</small>
+            </Card>
+          </Link>
+          <Link to="/documents">
+            <Card className={`stat-card ${overdueDocuments.length ? 'danger' : ''}`}>
+              <FileWarning />
+              <span>Documentos vencidos</span>
+              <strong>{overdueDocuments.length}</strong>
+              <small>{overdueDocuments[0]?.name ?? 'Nenhum vencido'}</small>
             </Card>
           </Link>
         </div>
@@ -190,32 +245,66 @@ export function DashboardPage() {
             <Link to="/documents">Ver documentos</Link>
           </div>
           <Card className="list-card">
-            <div className="list-row">
-              <span className="row-icon warning">
-                <FileWarning />
-              </span>
-              <div>
-                <b>
-                  {data.documents.find((item) => item.status === 'pending')?.name ??
-                    'Documentação em dia'}
-                </b>
-                <small>
-                  Vence em{' '}
-                  {formatDate(data.documents.find((item) => item.status === 'pending')?.dueDate)}
-                </small>
+            {attentionDocument ? (
+              <div className="list-row">
+                <span className="row-icon warning">
+                  <FileWarning />
+                </span>
+                <div>
+                  <b>{attentionDocument.name}</b>
+                  <small>
+                    {attentionDocument.dueDate
+                      ? `Vence em ${formatDate(attentionDocument.dueDate)}`
+                      : 'Sem vencimento informado'}
+                  </small>
+                </div>
+                <ArrowRight />
               </div>
-              <ArrowRight />
-            </div>
-            <div className="list-row">
-              <span className="row-icon success">
-                <ShieldCheck />
-              </span>
-              <div>
-                <b>Garantia da bateria</b>
-                <small>Válida até {formatDate(data.warranties[0]?.endDate)}</small>
+            ) : (
+              <div className="inline-empty">
+                <CheckCircle2 />
+                Nenhum documento pendente ou vencido.
               </div>
-              <ArrowRight />
-            </div>
+            )}
+            {attentionWarranty ? (
+              <div className="list-row">
+                <span
+                  className={`row-icon ${attentionWarranty.state === 'expired' ? 'danger' : 'warning'}`}
+                >
+                  <ShieldCheck />
+                </span>
+                <div>
+                  <b>
+                    {attentionWarranty.warranty.type === 'part'
+                      ? (data.parts.find(
+                          (part) => part.id === attentionWarranty.warranty.partInstanceId
+                        )?.name ?? 'Garantia de peça')
+                      : (data.maintenancePlans.find((plan) =>
+                          data.occurrences.some(
+                            (occurrence) =>
+                              occurrence.id ===
+                                attentionWarranty.warranty.maintenanceOccurrenceId &&
+                              occurrence.maintenancePlanId === plan.id
+                          )
+                        )?.title ?? 'Garantia de serviço')}
+                  </b>
+                  <small>
+                    {attentionWarranty.state === 'expired'
+                      ? 'Garantia vencida'
+                      : 'Próxima do vencimento'}
+                    {attentionWarranty.warranty.endDate
+                      ? ` · ${formatDate(attentionWarranty.warranty.endDate)}`
+                      : ''}
+                  </small>
+                </div>
+                <ArrowRight />
+              </div>
+            ) : (
+              <div className="inline-empty">
+                <CheckCircle2 />
+                Nenhuma garantia vencida ou próxima.
+              </div>
+            )}
           </Card>
         </section>
       </div>
@@ -227,27 +316,30 @@ export function DashboardPage() {
       <Card className="expense-summary">
         <div>
           <span>Total registrado</span>
-          <strong>
-            {formatMoney(
-              yearCosts + data.documents.reduce((sum, item) => sum + (item.amountCents ?? 0), 0)
-            )}
-          </strong>
-          <small>Manutenções e documentos</small>
+          <strong>{formatMoney(yearCosts)}</strong>
+          <small>Manutenções e documentos em {currentYear}</small>
         </div>
         <div className="expense-bars">
-          <i style={{ width: '68%' }} />
-          <i style={{ width: '44%' }} />
-          <i style={{ width: '26%' }} />
+          {recentMonths.length ? (
+            recentMonths.map(([month, value]) => (
+              <span key={month} title={`${month}: ${formatMoney(value)}`}>
+                <i style={{ height: `${Math.max(8, Math.round((value / maxMonth) * 100))}%` }} />
+                <small>{month.slice(5)}</small>
+              </span>
+            ))
+          ) : (
+            <small>Sem gastos em {currentYear}</small>
+          )}
         </div>
         <div className="recent-expense">
           <Receipt />
           <span>
-            <b>{data.occurrences.length ? 'Última manutenção' : 'Nenhuma manutenção registrada'}</b>
+            <b>{latestOccurrence ? 'Última manutenção' : 'Nenhuma manutenção registrada'}</b>
             <small>
-              {data.occurrences.length
+              {latestOccurrence
                 ? `${formatMoney(
-                    calculateExpense(data.occurrences[0].expense).netAmountCents
-                  )} · ${formatDate(data.occurrences[0].performedDate)}`
+                    calculateExpense(latestOccurrence.expense).netAmountCents
+                  )} · ${formatDate(latestOccurrence.performedDate)}`
                 : 'Registre a primeira manutenção do veículo.'}
             </small>
           </span>

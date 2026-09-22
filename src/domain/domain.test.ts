@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateExpense } from './expenses';
+import { calculateExpense, clearExpenseRefund, setExpenseRefund } from './expenses';
 import { calculateMaintenanceStatus, nextCycle } from './maintenance';
 import { getCurrentOdometer, sortOdometerRecords, validateOdometerReading } from './odometer';
 import { installPart, removePart } from './parts';
@@ -112,6 +112,45 @@ describe('financeiro', () => {
       grossAmountCents: 14000,
       refundedAmountCents: 4000,
       netAmountCents: 10000
+    });
+  });
+
+  it('classifica estorno parcial e total sem alterar o valor original', () => {
+    const expense = {
+      partsTotalCents: 30000,
+      laborCostCents: 15000,
+      otherCostCents: 5000,
+      manualOverrideEnabled: false,
+      refundStatus: 'none' as const,
+      refundedAmountCents: 0
+    };
+    const partial = setExpenseRefund(expense, 15000, 'Crédito do fornecedor');
+    expect(partial).toMatchObject({
+      refundStatus: 'partial',
+      refundedAmountCents: 15000,
+      refundNotes: 'Crédito do fornecedor',
+      partsTotalCents: 30000
+    });
+    expect(calculateExpense(partial).netAmountCents).toBe(35000);
+    expect(setExpenseRefund(expense, 50000).refundStatus).toBe('full');
+    expect(calculateExpense(setExpenseRefund(expense, 50000)).netAmountCents).toBe(0);
+  });
+
+  it('rejeita estorno inválido e permite removê-lo', () => {
+    const expense = {
+      partsTotalCents: 10000,
+      laborCostCents: 0,
+      otherCostCents: 0,
+      manualOverrideEnabled: false,
+      refundStatus: 'none' as const,
+      refundedAmountCents: 0
+    };
+    expect(() => setExpenseRefund(expense, 0)).toThrow('maior que zero');
+    expect(() => setExpenseRefund(expense, 10001)).toThrow('não pode superar');
+    expect(clearExpenseRefund(setExpenseRefund(expense, 4000))).toMatchObject({
+      refundStatus: 'none',
+      refundedAmountCents: 0,
+      refundNotes: undefined
     });
   });
 });
