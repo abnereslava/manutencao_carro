@@ -2286,18 +2286,36 @@ main {
 .odometer-row:last-child {
   border: 0;
 }
-.odometer-row > div {
+.odometer-row > div:not(.odometer-row-actions) {
   flex: 1;
   display: grid;
   gap: 2px;
 }
-.odometer-row > div span,
-.odometer-row > div small {
+.odometer-row > div:not(.odometer-row-actions) span,
+.odometer-row > div:not(.odometer-row-actions) small {
   color: var(--color-text-secondary);
   font-size: 11px;
 }
-.odometer-row .icon-button {
+.odometer-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.odometer-row-actions .icon-button.danger {
   color: var(--color-status-danger);
+}
+.odometer-impact {
+  display: grid;
+  gap: 5px;
+  margin-top: 18px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-info) 30%, var(--color-border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-info) 7%, var(--color-surface));
+}
+.odometer-impact span,
+.odometer-impact small {
+  color: var(--color-text-secondary);
 }
 
 .alert-list {

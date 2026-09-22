@@ -52,6 +52,12 @@ interface DataContextValue {
   syncState: SyncState;
   conflicts: DataConflict[];
   addOdometer: (value: number, date: string, notes: string) => Promise<string | null>;
+  updateOdometer: (
+    id: string,
+    value: number,
+    date: string,
+    notes: string
+  ) => Promise<string | null>;
   removeOdometer: (id: string) => Promise<void>;
   saveVehicle: (vehicle: Vehicle) => Promise<void>;
   saveMaintenance: (
@@ -62,7 +68,9 @@ interface DataContextValue {
       | 'priority'
       | 'recurrenceType'
       | 'intervalKm'
+      | 'intervalDays'
       | 'intervalMonths'
+      | 'intervalYears'
       | 'nextDueKm'
       | 'nextDueDate'
       | 'componentDefinitionId'
@@ -494,7 +502,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const addOdometer: DataContextValue['addOdometer'] = async (value, date, notes) => {
-    const error = validateOdometerReading(data.odometer, value);
+    const recordedDate = date || todayISO();
+    const error = validateOdometerReading(data.odometer, value, { recordedDate });
     if (error) return error;
     if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para salvar a quilometragem.');
@@ -504,7 +513,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       id: uid('odo'),
       vehicleId: current.vehicle.id,
       odometerKm: value,
-      recordedDate: date,
+      recordedDate,
       observations: notes
     };
     const recalculated = recalculate(
@@ -560,12 +569,86 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setDataState(next);
     return null;
   };
+  const updateOdometer: DataContextValue['updateOdometer'] = async (id, value, date, notes) => {
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para editar a quilometragem.');
+    const current = data;
+    const existing = current.odometer.find((item) => item.id === id);
+    if (!existing) throw new Error('Leitura não encontrada.');
+    const recordedDate = date || todayISO();
+    const error = validateOdometerReading(current.odometer, value, {
+      editingId: id,
+      recordedDate
+    });
+    if (error) return error;
+    const now = new Date().toISOString();
+    const record: OdometerRecord = {
+      ...existing,
+      odometerKm: value,
+      recordedDate,
+      observations: notes,
+      revision: existing.revision + 1,
+      updatedAt: now,
+      updatedBy: user?.email ?? 'local'
+    };
+    const list = current.odometer.map((item) => (item.id === id ? record : item));
+    const recalculated = recalculate({ ...current, odometer: list }, getCurrentOdometer(list));
+    const plans = recalculated.maintenancePlans.map((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.status === plan.status
+        ? plan
+        : {
+            ...plan,
+            revision: plan.revision + 1,
+            updatedAt: now,
+            updatedBy: user?.email ?? 'local'
+          };
+    });
+    const next = {
+      ...recalculated,
+      maintenancePlans: plans,
+      vehicle: {
+        ...recalculated.vehicle,
+        revision: current.vehicle.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }
+    };
+    const changedPlans = next.maintenancePlans.filter((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.revision !== plan.revision;
+    });
+    await runMutation(`odometer:update:${id}`, async () => {
+      await ensureNoConflict('odometer', existing, record);
+      await ensureNoConflict('vehicle', current.vehicle, next.vehicle);
+      await Promise.all(
+        changedPlans.map(async (plan) => {
+          const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+          if (previous) await ensureNoConflict('maintenancePlan', previous, plan);
+        })
+      );
+      if (database.current)
+        await saveOdometerChange(database.current, {
+          record,
+          vehicle: next.vehicle,
+          plans: changedPlans,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+    return null;
+  };
   const removeOdometer: DataContextValue['removeOdometer'] = async (id) => {
     if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para excluir a quilometragem.');
     const current = data;
+    const record = current.odometer.find((item) => item.id === id);
+    if (!record) throw new Error('Leitura não encontrada.');
     const list = current.odometer.filter((item) => item.id !== id);
-    if (list.length === current.odometer.length) throw new Error('Leitura não encontrada.');
     const recalculated = recalculate({ ...current, odometer: list }, getCurrentOdometer(list));
     const now = new Date().toISOString();
     const plans = recalculated.maintenancePlans.map((plan) => {
@@ -594,6 +677,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return previous?.revision !== plan.revision;
     });
     await runMutation(`odometer:remove:${id}`, async () => {
+      await ensureNoConflict('odometer', record, record);
       await ensureNoConflict('vehicle', current.vehicle, next.vehicle);
       await Promise.all(
         changedPlans.map(async (plan) => {
@@ -1476,6 +1560,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       syncState,
       conflicts,
       addOdometer,
+      updateOdometer,
       removeOdometer,
       saveVehicle,
       saveMaintenance,

@@ -13,6 +13,85 @@ test('KM atualiza o veículo sem regressão', async ({ page }) => {
   await expect(page.locator('.connection')).toContainText('Sincronizado');
 });
 
+test('histórico de KM pode ser corrigido e excluído com recomposição dos derivados', async ({
+  page
+}) => {
+  await page.goto('./#/vehicle');
+  const currentRow = page.locator('.odometer-row').filter({ hasText: '148.250 km' });
+  await currentRow.getByRole('button', { name: 'Editar leitura' }).click();
+  await expect(page.getByText('Impacto desta correção')).toBeVisible();
+  await page.getByLabel('Nova leitura').fill('147500');
+  await expect(page.getByText(/148\.250 km.*147\.500 km/)).toBeVisible();
+  await page.getByRole('button', { name: 'Salvar correção' }).click();
+  await expect(page.getByText('147.500 km').first()).toBeVisible();
+
+  let saved = await page.evaluate(() => JSON.parse(localStorage.getItem('carango-demo-data-v1')!));
+  expect(saved.vehicle.currentOdometer).toBe(147500);
+  expect(
+    saved.maintenancePlans.find((plan: { id: string }) => plan.id === 'maint-brakes').status
+  ).toBe('ok');
+  expect(
+    saved.alerts.some((alert: { id: string }) => alert.id === 'maintenance-maint-brakes')
+  ).toBe(false);
+
+  const correctedRow = page.locator('.odometer-row').filter({ hasText: '147.500 km' });
+  await correctedRow.getByRole('button', { name: 'Excluir leitura' }).click();
+  await expect(page.getByRole('dialog').getByText(/147\.500 km.*147\.380 km/)).toBeVisible();
+  await page.getByRole('button', { name: 'Excluir leitura', exact: true }).click();
+  await expect(page.getByText('147.380 km').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Atualizar KM' }).click();
+  await expect(page.getByLabel('Data da leitura')).toHaveValue('');
+  await page.getByLabel('Nova leitura').fill('148000');
+  await page.getByRole('button', { name: 'Salvar leitura' }).click();
+
+  saved = await page.evaluate(() => JSON.parse(localStorage.getItem('carango-demo-data-v1')!));
+  const added = saved.odometer.find(
+    (record: { odometerKm: number }) => record.odometerKm === 148000
+  );
+  const today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+  expect(added.recordedDate).toBe(today);
+  expect(saved.vehicle.currentOdometer).toBe(148000);
+  expect(
+    saved.maintenancePlans.find((plan: { id: string }) => plan.id === 'maint-brakes').status
+  ).toBe('upcoming');
+  expect(
+    saved.alerts.some((alert: { id: string }) => alert.id === 'maintenance-maint-brakes')
+  ).toBe(true);
+});
+
+test('recorrência temporal aceita anos em um plano combinado', async ({ page }) => {
+  await page.goto('./#/maintenance/new');
+  await page.getByLabel('Título').fill('Substituir correia auxiliar');
+  await page
+    .getByRole('spinbutton', { name: 'KM da última realização', exact: true })
+    .fill('148250');
+  await page
+    .getByRole('textbox', { name: 'Data da última realização', exact: true })
+    .fill('2026-09-20');
+  await page.getByRole('spinbutton', { name: 'Intervalo em KM', exact: true }).fill('40000');
+  await page.getByRole('spinbutton', { name: 'Intervalo de tempo', exact: true }).fill('2');
+  await page.getByLabel('Unidade de tempo').selectOption('years');
+  await expect(page.getByRole('textbox', { name: /^Próxima data/ })).toHaveValue('2028-09-20');
+  await page.getByRole('button', { name: 'Criar manutenção' }).click();
+
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('carango-demo-data-v1')!)
+  );
+  const plan = saved.maintenancePlans.find(
+    (item: { title: string }) => item.title === 'Substituir correia auxiliar'
+  );
+  expect(plan).toMatchObject({
+    recurrenceType: 'km_or_time',
+    intervalKm: 40000,
+    intervalYears: 2,
+    nextDueKm: 188250,
+    nextDueDate: '2028-09-20'
+  });
+  expect(plan.intervalDays).toBeUndefined();
+  expect(plan.intervalMonths).toBeUndefined();
+});
+
 test('conclusão recorrente gera histórico e próximo ciclo', async ({ page }) => {
   await page.goto('./#/maintenance/maint-oil');
   await page.getByRole('button', { name: 'Concluir manutenção' }).click();

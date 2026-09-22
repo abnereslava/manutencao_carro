@@ -4,8 +4,9 @@ import { useData } from '../../app/providers/DataProvider';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card, Input, Modal, Textarea } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
+import { getCurrentOdometer, sortOdometerRecords } from '../../domain/odometer';
 import { formatDate, formatKm } from '../../lib/format';
-import type { Vehicle } from '../../types/domain';
+import type { OdometerRecord, Vehicle } from '../../types/domain';
 import { OdometerModal } from './OdometerModal';
 
 export function VehiclePage() {
@@ -14,10 +15,19 @@ export function VehiclePage() {
   const [editing, setEditing] = useState(false);
   const [odoOpen, setOdoOpen] = useState(false);
   const [draft, setDraft] = useState<Vehicle>(data.vehicle);
+  const [editingOdometer, setEditingOdometer] = useState<OdometerRecord | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [operationError, setOperationError] = useState('');
+  const odometerHistory = sortOdometerRecords(data.odometer);
+  const currentRecordId = odometerHistory.find(
+    (record) => record.odometerKm === data.vehicle.currentOdometer
+  )?.id;
+  const deletingRecord = data.odometer.find((record) => record.id === deleteId);
+  const odometerAfterDeletion = deleteId
+    ? getCurrentOdometer(data.odometer.filter((record) => record.id !== deleteId))
+    : data.vehicle.currentOdometer;
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -130,31 +140,39 @@ export function VehiclePage() {
             </Button>
           </div>
           <Card className="odometer-history">
-            {[...data.odometer]
-              .sort((a, b) => b.recordedDate.localeCompare(a.recordedDate))
-              .map((record, index) => (
-                <div className="odometer-row" key={record.id}>
-                  <span className="timeline-dot odometer">
-                    <Gauge />
-                  </span>
-                  <div>
-                    <strong>{formatKm(record.odometerKm)}</strong>
-                    <span>{formatDate(record.recordedDate)}</span>
-                    <small>{record.observations || 'Sem observações'}</small>
-                  </div>
-                  {index === 0 ? (
-                    <Badge tone="success">Atual</Badge>
-                  ) : (
-                    <button
-                      className="icon-button"
-                      aria-label={`Excluir leitura de ${formatKm(record.odometerKm)}`}
-                      onClick={() => setDeleteId(record.id)}
-                    >
-                      <Trash2 />
-                    </button>
-                  )}
+            {odometerHistory.map((record) => (
+              <div className="odometer-row" key={record.id}>
+                <span className="timeline-dot odometer">
+                  <Gauge />
+                </span>
+                <div>
+                  <strong>{formatKm(record.odometerKm)}</strong>
+                  <span>{formatDate(record.recordedDate)}</span>
+                  <small>{record.observations || 'Sem observações'}</small>
+                  <small>Registrada por {record.createdBy || 'usuário não identificado'}</small>
                 </div>
-              ))}
+                <div className="odometer-row-actions">
+                  {record.id === currentRecordId && <Badge tone="success">Atual</Badge>}
+                  <button
+                    className="icon-button"
+                    aria-label={`Editar leitura de ${formatKm(record.odometerKm)}`}
+                    onClick={() => setEditingOdometer(record)}
+                  >
+                    <Edit3 />
+                  </button>
+                  <button
+                    className="icon-button danger"
+                    aria-label={`Excluir leitura de ${formatKm(record.odometerKm)}`}
+                    onClick={() => setDeleteId(record.id)}
+                  >
+                    <Trash2 />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!odometerHistory.length && (
+              <div className="empty-state compact">Nenhuma leitura registrada.</div>
+            )}
           </Card>
         </section>
       </div>
@@ -242,7 +260,17 @@ export function VehiclePage() {
         </form>
       </Modal>
       <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="Excluir leitura">
-        <p>Ao excluir, a quilometragem atual e os estados dependentes serão recalculados.</p>
+        <div className="odometer-impact">
+          <b>Impacto da exclusão</b>
+          <span>
+            Leitura: {deletingRecord ? formatKm(deletingRecord.odometerKm) : '—'} · KM atual:{' '}
+            {formatKm(data.vehicle.currentOdometer)} → {formatKm(odometerAfterDeletion)}
+          </span>
+          <small>
+            Planos de manutenção, garantias e alertas dependentes serão recalculados. Fatos
+            mecânicos registrados não serão excluídos.
+          </small>
+        </div>
         {operationError && <p className="field-error">{operationError}</p>}
         <div className="form-actions">
           <Button variant="ghost" disabled={deleting} onClick={() => setDeleteId(null)}>
@@ -254,6 +282,11 @@ export function VehiclePage() {
         </div>
       </Modal>
       <OdometerModal open={odoOpen} onClose={() => setOdoOpen(false)} />
+      <OdometerModal
+        open={!!editingOdometer}
+        record={editingOdometer}
+        onClose={() => setEditingOdometer(null)}
+      />
     </>
   );
 }

@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card } from '../../components/ui';
 import { useToast } from '../../components/ui/Toast';
 import { formatDate, formatKm } from '../../lib/format';
+import type { MaintenancePlan } from '../../types/domain';
 import { statusTone } from './MaintenancePage';
 
 const statusLabels = {
@@ -16,6 +17,16 @@ const statusLabels = {
   in_progress: 'Em andamento',
   archived: 'Arquivada'
 } as const;
+
+function recurrenceLabel(plan: MaintenancePlan) {
+  if (plan.recurrenceType === 'none') return 'Sem recorrência';
+  const intervals: string[] = [];
+  if (plan.intervalKm) intervals.push(`a cada ${formatKm(plan.intervalKm)}`);
+  if (plan.intervalDays) intervals.push(`a cada ${plan.intervalDays} dia(s)`);
+  if (plan.intervalMonths) intervals.push(`a cada ${plan.intervalMonths} mês(es)`);
+  if (plan.intervalYears) intervals.push(`a cada ${plan.intervalYears} ano(s)`);
+  return intervals.join(' ou ') || 'Intervalo não informado';
+}
 
 export function MaintenanceDetailPage() {
   const { id } = useParams();
@@ -98,7 +109,7 @@ export function MaintenanceDetailPage() {
             </div>
             <div>
               <dt>Recorrência</dt>
-              <dd>{plan.recurrenceType === 'km_or_time' ? 'KM ou tempo' : plan.recurrenceType}</dd>
+              <dd>{recurrenceLabel(plan)}</dd>
             </div>
           </dl>
           <div className="due-panels">

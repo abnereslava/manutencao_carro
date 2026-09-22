@@ -19,7 +19,8 @@ interface MaintenanceDraft {
   initialPerformedKm: string;
   initialPerformedDate: string;
   intervalKm: string;
-  intervalMonths: string;
+  timeIntervalValue: string;
+  timeIntervalUnit: 'days' | 'months' | 'years';
   nextDueKm: string;
   nextDueDate: string;
   description: string;
@@ -36,7 +37,8 @@ const initial: MaintenanceDraft = {
   initialPerformedKm: '',
   initialPerformedDate: '',
   intervalKm: '',
-  intervalMonths: '',
+  timeIntervalValue: '',
+  timeIntervalUnit: 'months',
   nextDueKm: '',
   nextDueDate: '',
   description: '',
@@ -94,6 +96,11 @@ export function NewMaintenancePage() {
   const usesKm = value.recurrenceType === 'km' || value.recurrenceType === 'km_or_time';
   const usesTime = value.recurrenceType === 'time' || value.recurrenceType === 'km_or_time';
   const hasCycleBase = value.initialPerformedKm !== '' && value.initialPerformedDate !== '';
+  const timeIntervalValue = value.timeIntervalValue ?? '';
+  const timeIntervalUnit = value.timeIntervalUnit ?? 'months';
+  const numericTimeInterval = Number(timeIntervalValue);
+  const temporalInterval =
+    usesTime && Number.isInteger(numericTimeInterval) && numericTimeInterval > 0;
 
   const calculatedCycle =
     isRecurring && hasCycleBase
@@ -101,7 +108,12 @@ export function NewMaintenancePage() {
           {
             recurrenceType: value.recurrenceType,
             intervalKm: value.intervalKm ? Number(value.intervalKm) : undefined,
-            intervalMonths: value.intervalMonths ? Number(value.intervalMonths) : undefined
+            intervalDays:
+              temporalInterval && timeIntervalUnit === 'days' ? numericTimeInterval : undefined,
+            intervalMonths:
+              temporalInterval && timeIntervalUnit === 'months' ? numericTimeInterval : undefined,
+            intervalYears:
+              temporalInterval && timeIntervalUnit === 'years' ? numericTimeInterval : undefined
           },
           Number(value.initialPerformedKm),
           value.initialPerformedDate
@@ -133,8 +145,8 @@ export function NewMaintenancePage() {
       return;
     }
 
-    if (usesTime && !value.intervalMonths) {
-      setCycleError('Informe o intervalo em meses para calcular a próxima data.');
+    if (usesTime && !temporalInterval) {
+      setCycleError('Informe um intervalo de tempo inteiro maior que zero.');
       return;
     }
 
@@ -150,7 +162,9 @@ export function NewMaintenancePage() {
         initialPerformedKm: isRecurring ? Number(value.initialPerformedKm) : undefined,
         initialPerformedDate: isRecurring ? value.initialPerformedDate : undefined,
         intervalKm: usesKm ? Number(value.intervalKm) : undefined,
-        intervalMonths: usesTime ? Number(value.intervalMonths) : undefined,
+        intervalDays: usesTime && timeIntervalUnit === 'days' ? numericTimeInterval : undefined,
+        intervalMonths: usesTime && timeIntervalUnit === 'months' ? numericTimeInterval : undefined,
+        intervalYears: usesTime && timeIntervalUnit === 'years' ? numericTimeInterval : undefined,
         nextDueKm: isRecurring
           ? calculatedCycle.nextDueKm
           : value.nextDueKm
@@ -277,14 +291,37 @@ export function NewMaintenancePage() {
                   )}
 
                   {usesTime ? (
-                    <Input
-                      label="Intervalo em meses"
-                      type="number"
-                      min="1"
-                      required
-                      error={cycleError && !value.intervalMonths ? cycleError : undefined}
-                      {...field('intervalMonths')}
-                    />
+                    <>
+                      <Input
+                        label="Intervalo de tempo"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        value={timeIntervalValue}
+                        error={cycleError && !temporalInterval ? cycleError : undefined}
+                        onChange={(event) => {
+                          setCycleError('');
+                          setValue({ ...value, timeIntervalValue: event.target.value });
+                        }}
+                      />
+                      <Select
+                        label="Unidade de tempo"
+                        value={timeIntervalUnit}
+                        onChange={(event) => {
+                          setCycleError('');
+                          setValue({
+                            ...value,
+                            timeIntervalUnit: event.target
+                              .value as MaintenanceDraft['timeIntervalUnit']
+                          });
+                        }}
+                      >
+                        <option value="days">Dias</option>
+                        <option value="months">Meses</option>
+                        <option value="years">Anos</option>
+                      </Select>
+                    </>
                   ) : (
                     <span />
                   )}

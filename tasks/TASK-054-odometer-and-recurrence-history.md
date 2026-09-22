@@ -1,6 +1,6 @@
 # TASK-054 — Completar recorrência e histórico do odômetro
 
-**Status:** TODO
+**Status:** DONE
 
 **GAPs:** GAP-011, GAP-014, GAP-015
 
@@ -16,14 +16,21 @@ Permitir corrigir e excluir leituras históricas, com data opcional e recomposi�
 
 ## Entregas
 
-- Recorrência temporal em dias, meses ou anos na UI
-- Editar e excluir leituras com confirmação
-- Data opcional usando o dia atual quando vazia
-- Recalcular KM atual, manutenções, garantias e alertas
-- Informar impactos antes de alterações históricas
+- [x] Recorrência temporal em dias, meses ou anos na UI
+- [x] Editar e excluir leituras com confirmação
+- [x] Data opcional usando o dia atual quando vazia
+- [x] Recalcular KM atual, manutenções, garantias e alertas
+- [x] Informar impactos antes de alterações históricas
 
 ## Critérios de aceite
 
-- Nova leitura continua monotônica
-- Correção histórica pode reduzir o KM atual quando aplicável
-- Todos os derivados refletem a sequência corrigida
+- [x] Nova leitura continua monotônica
+- [x] Correção histórica pode reduzir o KM atual quando aplicável
+- [x] Todos os derivados refletem a sequência corrigida
+
+## Validação
+
+- [x] Build de produção
+- [x] 20 testes unitários
+- [x] 25 cenários E2E aprovados e 1 ignorado
+- [x] Typecheck, lint e formatação

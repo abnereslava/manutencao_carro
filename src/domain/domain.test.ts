@@ -48,6 +48,40 @@ describe('odômetro', () => {
     expect(validateOdometerReading(records, 170)).toContain('não pode');
     expect(validateOdometerReading(records, 200)).toBeNull();
   });
+  it('permite corrigir a leitura atual para baixo sem ultrapassar a anterior', () => {
+    expect(
+      validateOdometerReading(records, 150, {
+        editingId: '2',
+        recordedDate: '2026-02-01'
+      })
+    ).toBeNull();
+    expect(
+      validateOdometerReading(records, 90, {
+        editingId: '2',
+        recordedDate: '2026-02-01'
+      })
+    ).toContain('anterior');
+  });
+  it('impede que uma correção histórica ultrapasse a leitura seguinte', () => {
+    expect(
+      validateOdometerReading(records, 150, {
+        editingId: '1',
+        recordedDate: '2026-01-01'
+      })
+    ).toBeNull();
+    expect(
+      validateOdometerReading(records, 200, {
+        editingId: '1',
+        recordedDate: '2026-01-01'
+      })
+    ).toContain('seguinte');
+  });
+  it('valida uma nova leitura retroativa contra a sequência cronológica', () => {
+    expect(validateOdometerReading(records, 150, { recordedDate: '2026-01-15' })).toBeNull();
+    expect(validateOdometerReading(records, 200, { recordedDate: '2026-01-15' })).toContain(
+      'seguinte'
+    );
+  });
 });
 
 describe('manutenção', () => {
@@ -83,6 +117,14 @@ describe('manutenção', () => {
         '2026-09-20'
       )
     ).toEqual({ nextDueKm: 158200, nextDueDate: '2027-09-20' });
+  });
+  it('calcula recorrência temporal em dias e anos', () => {
+    expect(nextCycle({ recurrenceType: 'time', intervalDays: 15 }, 0, '2026-09-20')).toEqual({
+      nextDueDate: '2026-10-05'
+    });
+    expect(nextCycle({ recurrenceType: 'time', intervalYears: 2 }, 0, '2026-09-20')).toEqual({
+      nextDueDate: '2028-09-20'
+    });
   });
 });
 
