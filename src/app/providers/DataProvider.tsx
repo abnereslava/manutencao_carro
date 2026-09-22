@@ -20,11 +20,13 @@ import {
   saveMaintenancePlanStateChange,
   saveMaintenanceCompletion,
   saveOdometerChange,
+  saveOccurrenceHistoryChange,
   saveWarrantyChange
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
 import { deriveAlerts, mergeAlertState } from '../../domain/alerts';
 import { clearExpenseRefund, setExpenseRefund } from '../../domain/expenses';
+import { analyzeOccurrenceDependencies } from '../../domain/history';
 import { calculateMaintenanceStatus, nextCycle } from '../../domain/maintenance';
 import { getCurrentOdometer, validateOdometerReading } from '../../domain/odometer';
 import { installPart, removePart } from '../../domain/parts';
@@ -83,6 +85,14 @@ interface DataContextValue {
     }
   ) => Promise<string>;
   completeMaintenance: (id: string, input: MaintenanceCompletionInput) => Promise<void>;
+  updateOccurrence: (
+    id: string,
+    input: Pick<
+      MaintenanceOccurrence,
+      'performedDate' | 'odometerKm' | 'workshopOrProvider' | 'observations'
+    >
+  ) => Promise<void>;
+  removeOccurrence: (id: string) => Promise<void>;
   updatePart: (
     id: string,
     input: Pick<
@@ -139,9 +149,23 @@ interface DataContextValue {
   ) => Promise<string>;
   saveRefund: (occurrenceId: string, amountCents: number, notes: string) => Promise<void>;
   removeRefund: (occurrenceId: string) => Promise<void>;
-  addDocument: (
-    input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
-  ) => Promise<void>;
+  saveDocument: (
+    input: Pick<
+      DocumentRecord,
+      | 'name'
+      | 'type'
+      | 'customTypeName'
+      | 'referenceNumber'
+      | 'referenceYear'
+      | 'issueDate'
+      | 'dueDate'
+      | 'amountCents'
+      | 'status'
+      | 'documentUrl'
+      | 'observations'
+    > & { id?: string }
+  ) => Promise<string>;
+  removeDocument: (id: string) => Promise<void>;
   markAlertSeen: (id: string) => Promise<void>;
   snoozeAlert: (id: string) => Promise<void>;
   updateSettings: (settings: AppData['settings']) => Promise<void>;
@@ -1050,6 +1074,384 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
+  const rebuildPlanFromOccurrences = (
+    plan: MaintenancePlan,
+    occurrences: MaintenanceOccurrence[],
+    now: string
+  ): MaintenancePlan => {
+    const latest = occurrences
+      .filter((item) => item.maintenancePlanId === plan.id)
+      .sort(
+        (a, b) =>
+          b.performedDate.localeCompare(a.performedDate) || b.createdAt.localeCompare(a.createdAt)
+      )[0];
+    let derived: MaintenancePlan;
+    if (!latest) {
+      derived = {
+        ...plan,
+        nextDueKm: undefined,
+        nextDueDate: undefined,
+        status: 'pending',
+        isActive: true
+      };
+    } else if (plan.recurrenceType === 'none') {
+      derived = { ...plan, status: 'archived', isActive: false };
+    } else {
+      const cycle = nextCycle(plan, latest.odometerKm, latest.performedDate);
+      derived = {
+        ...plan,
+        ...cycle,
+        nextDueKm: cycle.nextDueKm,
+        nextDueDate: cycle.nextDueDate,
+        status: 'ok',
+        isActive: true
+      };
+      derived.status = calculateMaintenanceStatus(derived, {
+        currentKm: data.vehicle.currentOdometer,
+        today: todayISO(),
+        alertKmThreshold: data.settings.alertKmThreshold,
+        alertDaysThreshold: data.settings.alertDaysThreshold
+      });
+    }
+    return {
+      ...derived,
+      revision: plan.revision + 1,
+      updatedAt: now,
+      updatedBy: user?.email ?? 'local'
+    };
+  };
+  const updateOccurrence: DataContextValue['updateOccurrence'] = async (id, input) => {
+    const current = data;
+    const occurrence = current.occurrences.find((item) => item.id === id);
+    if (!occurrence) throw new Error('Ocorrência não encontrada.');
+    const plan = current.maintenancePlans.find((item) => item.id === occurrence.maintenancePlanId);
+    if (!plan) throw new Error('Plano relacionado não encontrado.');
+    if (!input.performedDate) throw new Error('Informe a data da ocorrência.');
+    if (!Number.isInteger(input.odometerKm) || input.odometerKm < 0)
+      throw new Error('Informe uma quilometragem válida.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para editar a ocorrência.');
+    const now = new Date().toISOString();
+    const updated: MaintenanceOccurrence = {
+      ...occurrence,
+      ...input,
+      workshopOrProvider: input.workshopOrProvider?.trim() || undefined,
+      observations: input.observations.trim(),
+      revision: occurrence.revision + 1,
+      updatedAt: now,
+      updatedBy: user?.email ?? 'local'
+    };
+    const occurrences = current.occurrences.map((item) => (item.id === id ? updated : item));
+    const updatedPlan = rebuildPlanFromOccurrences(plan, occurrences, now);
+    const changedParts = current.parts
+      .filter((part) => part.installationOccurrenceId === id || part.removalOccurrenceId === id)
+      .map((part) => ({
+        ...part,
+        installDate: part.installationOccurrenceId === id ? input.performedDate : part.installDate,
+        installOdometerKm:
+          part.installationOccurrenceId === id ? input.odometerKm : part.installOdometerKm,
+        removalDate: part.removalOccurrenceId === id ? input.performedDate : part.removalDate,
+        removalOdometerKm:
+          part.removalOccurrenceId === id ? input.odometerKm : part.removalOdometerKm,
+        revision: part.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }));
+    const changedPartIds = new Set(changedParts.map((item) => item.id));
+    const parts = current.parts.map(
+      (part) => changedParts.find((item) => item.id === part.id) ?? part
+    );
+    const changedWarranties = current.warranties
+      .filter(
+        (warranty) =>
+          warranty.maintenanceOccurrenceId === id ||
+          (warranty.partInstanceId !== undefined && changedPartIds.has(warranty.partInstanceId))
+      )
+      .map((warranty) => ({
+        ...warranty,
+        startDate: input.performedDate,
+        startOdometerKm: input.odometerKm,
+        revision: warranty.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }));
+    const warranties = current.warranties.map(
+      (warranty) => changedWarranties.find((item) => item.id === warranty.id) ?? warranty
+    );
+    const changedIssues = current.issues
+      .filter((issue) => issue.relatedMaintenanceOccurrenceId === id)
+      .map((issue) => ({
+        ...issue,
+        identifiedDate:
+          issue.identifiedDate === occurrence.performedDate
+            ? input.performedDate
+            : issue.identifiedDate,
+        identifiedOdometerKm:
+          issue.identifiedDate === occurrence.performedDate
+            ? input.odometerKm
+            : issue.identifiedOdometerKm,
+        resolvedDate:
+          issue.resolvedDate === occurrence.performedDate
+            ? input.performedDate
+            : issue.resolvedDate,
+        revision: issue.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }));
+    const issues = current.issues.map(
+      (issue) => changedIssues.find((item) => item.id === issue.id) ?? issue
+    );
+    const base = {
+      ...current,
+      occurrences,
+      parts,
+      warranties,
+      issues,
+      maintenancePlans: current.maintenancePlans.map((item) =>
+        item.id === plan.id ? updatedPlan : item
+      )
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    await runMutation(`occurrence:update:${id}`, async () => {
+      await ensureNoConflict('maintenanceOccurrence', occurrence, updated);
+      await ensureNoConflict('maintenancePlan', plan, updatedPlan);
+      await Promise.all(
+        changedParts.map((item) =>
+          ensureNoConflict(
+            'part',
+            current.parts.find((part) => part.id === item.id)!,
+            item
+          )
+        )
+      );
+      await Promise.all(
+        changedWarranties.map((item) =>
+          ensureNoConflict(
+            'warranty',
+            current.warranties.find((warranty) => warranty.id === item.id)!,
+            item
+          )
+        )
+      );
+      await Promise.all(
+        changedIssues.map((item) =>
+          ensureNoConflict(
+            'issue',
+            current.issues.find((issue) => issue.id === item.id)!,
+            item
+          )
+        )
+      );
+      if (database.current)
+        await saveOccurrenceHistoryChange(database.current, {
+          occurrence: updated,
+          plan: updatedPlan,
+          parts: changedParts,
+          removedPartIds: [],
+          componentStates: [],
+          warranties: changedWarranties,
+          removedWarrantyIds: [],
+          issues: changedIssues,
+          removedIssueIds: [],
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const removeOccurrence: DataContextValue['removeOccurrence'] = async (id) => {
+    const current = data;
+    const occurrence = current.occurrences.find((item) => item.id === id);
+    if (!occurrence) throw new Error('Ocorrência não encontrada.');
+    const analysis = analyzeOccurrenceDependencies(current, id);
+    if (!analysis.canDelete)
+      throw new Error(
+        `Exclusão bloqueada: ${analysis.dependencies
+          .filter((item) => item.blocking)
+          .map((item) => item.label)
+          .join('; ')}.`
+      );
+    const plan = current.maintenancePlans.find((item) => item.id === occurrence.maintenancePlanId);
+    if (!plan) throw new Error('Plano relacionado não encontrado.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para excluir a ocorrência.');
+    const now = new Date().toISOString();
+    let parts = [...current.parts];
+    let componentStates = [...current.componentStates];
+    const changedParts = new Map<string, PartInstance>();
+    const removedPartIds: string[] = [];
+    const changedStates = new Map<string, ComponentState>();
+    const removedNewPartIds = new Set<string>();
+
+    occurrence.partActions.forEach((action) => {
+      if (!action.partInstanceId) return;
+      const part = current.parts.find((item) => item.id === action.partInstanceId);
+      if (!part) return;
+      if (action.action === 'replaced') {
+        const previous = current.parts.find(
+          (item) =>
+            item.replacedByPartInstanceId === part.id && item.removalOccurrenceId === occurrence.id
+        );
+        if (!previous) return;
+        const restored: PartInstance = {
+          ...previous,
+          status: 'installed',
+          removalDate: undefined,
+          removalOdometerKm: undefined,
+          removalReason: undefined,
+          replacedByPartInstanceId: undefined,
+          removalOccurrenceId: undefined,
+          revision: previous.revision + 1,
+          updatedAt: now,
+          updatedBy: user?.email ?? 'local'
+        };
+        changedParts.set(restored.id, restored);
+        removedPartIds.push(part.id);
+        removedNewPartIds.add(part.id);
+        parts = parts
+          .filter((item) => item.id !== part.id)
+          .map((item) => (item.id === restored.id ? restored : item));
+        const state = componentStates.find(
+          (item) => item.componentDefinitionId === action.componentDefinitionId
+        );
+        if (state) {
+          const restoredState: ComponentState = {
+            ...state,
+            state: 'installed',
+            currentPartInstanceId: restored.id,
+            revision: state.revision + 1,
+            updatedAt: now,
+            updatedBy: user?.email ?? 'local'
+          };
+          changedStates.set(restoredState.id, restoredState);
+          componentStates = componentStates.map((item) =>
+            item.id === restoredState.id ? restoredState : item
+          );
+        }
+      }
+      if (action.action === 'removed') {
+        const restored: PartInstance = {
+          ...part,
+          status: 'installed',
+          removalDate: undefined,
+          removalOdometerKm: undefined,
+          removalReason: undefined,
+          removalOccurrenceId: undefined,
+          revision: part.revision + 1,
+          updatedAt: now,
+          updatedBy: user?.email ?? 'local'
+        };
+        changedParts.set(restored.id, restored);
+        parts = parts.map((item) => (item.id === restored.id ? restored : item));
+        const state = componentStates.find(
+          (item) => item.componentDefinitionId === action.componentDefinitionId
+        );
+        if (state) {
+          const restoredState: ComponentState = {
+            ...state,
+            state: 'installed',
+            currentPartInstanceId: restored.id,
+            revision: state.revision + 1,
+            updatedAt: now,
+            updatedBy: user?.email ?? 'local'
+          };
+          changedStates.set(restoredState.id, restoredState);
+          componentStates = componentStates.map((item) =>
+            item.id === restoredState.id ? restoredState : item
+          );
+        }
+      }
+    });
+
+    const removedWarrantyIds = current.warranties
+      .filter(
+        (item) =>
+          item.maintenanceOccurrenceId === id ||
+          (item.partInstanceId !== undefined && removedNewPartIds.has(item.partInstanceId))
+      )
+      .map((item) => item.id);
+    const removableIssueIds = current.issues
+      .filter(
+        (item) =>
+          item.relatedMaintenanceOccurrenceId === id &&
+          item.title.startsWith('Resultado da inspeção:') &&
+          item.createdAt === item.updatedAt &&
+          item.status === 'identified'
+      )
+      .map((item) => item.id);
+    const occurrences = current.occurrences.filter((item) => item.id !== id);
+    const updatedPlan = rebuildPlanFromOccurrences(plan, occurrences, now);
+    const base = {
+      ...current,
+      occurrences,
+      parts,
+      componentStates,
+      warranties: current.warranties.filter((item) => !removedWarrantyIds.includes(item.id)),
+      issues: current.issues.filter((item) => !removableIssueIds.includes(item.id)),
+      maintenancePlans: current.maintenancePlans.map((item) =>
+        item.id === plan.id ? updatedPlan : item
+      )
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    await runMutation(`occurrence:remove:${id}`, async () => {
+      await ensureNoConflict('maintenanceOccurrence', occurrence, occurrence);
+      await ensureNoConflict('maintenancePlan', plan, updatedPlan);
+      await Promise.all(
+        [...changedParts.values()].map((item) =>
+          ensureNoConflict(
+            'part',
+            current.parts.find((part) => part.id === item.id)!,
+            item
+          )
+        )
+      );
+      await Promise.all(
+        [...changedStates.values()].map((item) =>
+          ensureNoConflict(
+            'componentState',
+            current.componentStates.find((state) => state.id === item.id)!,
+            item
+          )
+        )
+      );
+      await Promise.all(
+        current.parts
+          .filter((item) => removedPartIds.includes(item.id))
+          .map((item) => ensureNoConflict('part', item, item))
+      );
+      await Promise.all(
+        current.warranties
+          .filter((item) => removedWarrantyIds.includes(item.id))
+          .map((item) => ensureNoConflict('warranty', item, item))
+      );
+      await Promise.all(
+        current.issues
+          .filter((item) => removableIssueIds.includes(item.id))
+          .map((item) => ensureNoConflict('issue', item, item))
+      );
+      if (database.current)
+        await saveOccurrenceHistoryChange(database.current, {
+          removedOccurrenceId: id,
+          plan: updatedPlan,
+          parts: [...changedParts.values()],
+          removedPartIds,
+          componentStates: [...changedStates.values()],
+          warranties: [],
+          removedWarrantyIds,
+          issues: [],
+          removedIssueIds: removableIssueIds,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
   const updatePart: DataContextValue['updatePart'] = async (id, input) => {
     const current = data;
     const part = current.parts.find((item) => item.id === id);
@@ -1342,29 +1744,91 @@ export function DataProvider({ children }: { children: ReactNode }) {
     updateRefund(occurrenceId, { type: 'save', amountCents, notes });
   const removeRefund: DataContextValue['removeRefund'] = (occurrenceId) =>
     updateRefund(occurrenceId, { type: 'remove' });
-  const addDocument: DataContextValue['addDocument'] = async (input) => {
+  const saveDocument: DataContextValue['saveDocument'] = async (input) => {
     if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para salvar o documento.');
     const current = data;
-    const document = {
-      ...audit(),
-      id: uid('doc'),
-      status: 'pending',
-      observations: '',
-      ...input
-    } as DocumentRecord;
-    const base = { ...current, documents: [document, ...current.documents] };
+    if (!input.name.trim()) throw new Error('Informe o nome do documento.');
+    if (input.type === 'custom' && !input.customTypeName?.trim())
+      throw new Error('Informe o nome do tipo personalizado.');
+    if (
+      !Number.isInteger(input.referenceYear) ||
+      input.referenceYear < 1900 ||
+      input.referenceYear > 2200
+    )
+      throw new Error('Informe um ano de referência válido.');
+    if (
+      input.amountCents !== undefined &&
+      (!Number.isInteger(input.amountCents) || input.amountCents < 0)
+    )
+      throw new Error('Informe um valor válido.');
+    const existing = input.id ? current.documents.find((item) => item.id === input.id) : undefined;
+    if (input.id && !existing) throw new Error('Documento não encontrado.');
+    const now = new Date().toISOString();
+    const document: DocumentRecord = existing
+      ? {
+          ...existing,
+          ...input,
+          name: input.name.trim(),
+          customTypeName: input.type === 'custom' ? input.customTypeName?.trim() : undefined,
+          referenceNumber: input.referenceNumber?.trim() || undefined,
+          documentUrl: input.documentUrl?.trim() || undefined,
+          observations: input.observations.trim(),
+          revision: existing.revision + 1,
+          updatedAt: now,
+          updatedBy: user?.email ?? 'local'
+        }
+      : {
+          ...audit(),
+          ...input,
+          id: uid('doc'),
+          name: input.name.trim(),
+          customTypeName: input.type === 'custom' ? input.customTypeName?.trim() : undefined,
+          referenceNumber: input.referenceNumber?.trim() || undefined,
+          documentUrl: input.documentUrl?.trim() || undefined,
+          observations: input.observations.trim()
+        };
+    const documents = existing
+      ? current.documents.map((item) => (item.id === document.id ? document : item))
+      : [document, ...current.documents];
+    const base = { ...current, documents };
     const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
-    await runMutation('document:add', async () => {
+    await runMutation(`document:${document.id}`, async () => {
+      if (existing) await ensureNoConflict('document', existing, document);
       if (database.current)
-        await saveDocumentChange(
-          database.current,
-          document,
-          next.alerts,
-          current.alerts
+        await saveDocumentChange(database.current, {
+          value: document,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
             .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
             .map((alert) => alert.id)
-        );
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+    return document.id;
+  };
+  const removeDocument: DataContextValue['removeDocument'] = async (id) => {
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para excluir o documento.');
+    const current = data;
+    const document = current.documents.find((item) => item.id === id);
+    if (!document) throw new Error('Documento não encontrado.');
+    const base = {
+      ...current,
+      documents: current.documents.filter((item) => item.id !== id)
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    await runMutation(`document:remove:${id}`, async () => {
+      await ensureNoConflict('document', document, document);
+      if (database.current)
+        await saveDocumentChange(database.current, {
+          removedDocumentId: id,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
     });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
@@ -1565,6 +2029,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       saveVehicle,
       saveMaintenance,
       completeMaintenance,
+      updateOccurrence,
+      removeOccurrence,
       updatePart,
       setComponentNotApplicable,
       saveIssue,
@@ -1573,7 +2039,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       saveWarranty,
       saveRefund,
       removeRefund,
-      addDocument,
+      saveDocument,
+      removeDocument,
       markAlertSeen,
       snoozeAlert,
       updateSettings,

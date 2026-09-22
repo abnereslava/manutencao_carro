@@ -390,6 +390,162 @@ test('garantias de peça e serviço podem ser criadas e editadas', async ({ page
   );
 });
 
+test('documento personalizado pode ser criado, editado e excluído com todos os campos', async ({
+  page
+}) => {
+  await page.goto('./#/documents');
+  await page.getByRole('button', { name: 'Novo documento' }).click();
+  await page.getByLabel('Nome').fill('Laudo cautelar 2026');
+  await page.getByLabel('Tipo').selectOption('custom');
+  await page.getByLabel('Tipo personalizado').fill('Laudo cautelar');
+  await page.getByLabel('Número / referência').fill('LC-9876');
+  await page.getByLabel('Ano de referência').fill('2026');
+  await page.getByLabel('Data de emissão').fill('2026-08-12');
+  await page.getByLabel('Vencimento').fill('2027-08-12');
+  await page.getByLabel('Valor (R$)').fill('350,90');
+  await page.getByLabel('Situação').selectOption('active');
+  await page.getByLabel('URL do documento').fill('https://example.com/laudo-cautelar');
+  await page.getByLabel('Observações').fill('Documento completo arquivado digitalmente.');
+  await page.getByRole('button', { name: 'Salvar documento' }).click();
+
+  const card = page.locator('.document-card').filter({ hasText: 'Laudo cautelar 2026' });
+  await expect(card).toContainText('Laudo cautelar');
+  await expect(card).toContainText('LC-9876');
+  await expect(card).toContainText('R$ 350,90');
+  await expect(card).toContainText('Ativo');
+  await expect(card.getByRole('link', { name: 'Abrir documento' })).toHaveAttribute(
+    'href',
+    'https://example.com/laudo-cautelar'
+  );
+
+  await card.getByRole('button', { name: 'Editar' }).click();
+  await page.getByLabel('Nome').fill('Laudo cautelar atualizado');
+  await page.getByLabel('Situação').selectOption('paid');
+  await page.getByRole('button', { name: 'Salvar documento' }).click();
+  const updatedCard = page
+    .locator('.document-card')
+    .filter({ hasText: 'Laudo cautelar atualizado' });
+  await expect(updatedCard).toContainText('Pago');
+
+  await updatedCard.getByRole('button', { name: 'Excluir' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Excluir documento' }).click();
+  await expect(page.getByText('Laudo cautelar atualizado')).toHaveCount(0);
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('carango-demo-data-v1')!)
+  );
+  expect(
+    saved.documents.some((item: { name: string }) => item.name.includes('Laudo cautelar'))
+  ).toBe(false);
+});
+
+test('histórico unificado filtra e recompõe somente o plano da ocorrência corrigida', async ({
+  page
+}) => {
+  await page.goto('./#/history');
+  await expect(page.getByRole('tab', { name: 'Inspeções' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Gastos' }).click();
+  await expect(page.getByRole('heading', { name: 'Gasto — Troca de óleo e filtro' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Tudo' }).click();
+  await page.getByLabel('Manutenção').selectOption('maint-oil');
+  await expect(page.getByText(/eventos? encontrados?/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Editar ocorrência' }).click();
+  await page.getByLabel('Data da ocorrência').fill('2026-02-20');
+  await page.getByLabel('Quilometragem da ocorrência').fill('140500');
+  await page.getByLabel('Oficina / prestador').fill('Oficina revisada');
+  await page.getByLabel('Observações da ocorrência').fill('Registro histórico corrigido.');
+  await page.getByRole('button', { name: 'Salvar correção' }).click();
+  await expect(page.getByText(/Ocorrência corrigida/)).toBeVisible();
+
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('carango-demo-data-v1')!)
+  );
+  expect(saved.occurrences.find((item: { id: string }) => item.id === 'occ-oil')).toMatchObject({
+    performedDate: '2026-02-20',
+    odometerKm: 140500,
+    workshopOrProvider: 'Oficina revisada',
+    observations: 'Registro histórico corrigido.'
+  });
+  expect(
+    saved.maintenancePlans.find((item: { id: string }) => item.id === 'maint-oil')
+  ).toMatchObject({ nextDueKm: 150500, nextDueDate: '2027-02-20' });
+  expect(
+    saved.maintenancePlans.find((item: { id: string }) => item.id === 'maint-brakes')
+  ).toMatchObject({ nextDueKm: 149000, status: 'upcoming', revision: 1 });
+});
+
+test('exclusão histórica faz rollback seguro de uma substituição A para B', async ({ page }) => {
+  await page.goto('./#/history');
+  await page.getByLabel('Manutenção').selectOption('maint-oil');
+  await page.getByRole('button', { name: 'Editar ocorrência' }).click();
+  await page.getByRole('button', { name: 'Salvar correção' }).click();
+  await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    const occurrence = saved.occurrences.find((item: { id: string }) => item.id === 'occ-oil');
+    const previous = saved.parts.find((item: { id: string }) => item.id === 'part-engine-oil');
+    occurrence.partActions = [
+      {
+        id: 'pa-replace',
+        componentDefinitionId: 'engine-oil',
+        partInstanceId: 'part-engine-oil-b',
+        action: 'replaced'
+      }
+    ];
+    previous.status = 'replaced';
+    previous.replacedByPartInstanceId = 'part-engine-oil-b';
+    previous.removalDate = occurrence.performedDate;
+    previous.removalOdometerKm = occurrence.odometerKm;
+    previous.removalOccurrenceId = occurrence.id;
+    saved.parts.push({
+      ...previous,
+      id: 'part-engine-oil-b',
+      name: 'Óleo sucessor',
+      status: 'installed',
+      installDate: occurrence.performedDate,
+      installOdometerKm: occurrence.odometerKm,
+      installationOccurrenceId: occurrence.id,
+      replacedByPartInstanceId: undefined,
+      removalDate: undefined,
+      removalOdometerKm: undefined,
+      removalOccurrenceId: undefined
+    });
+    const state = saved.componentStates.find(
+      (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'engine-oil'
+    );
+    state.currentPartInstanceId = 'part-engine-oil-b';
+    localStorage.setItem('carango-demo-data-v1', JSON.stringify(saved));
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Explorar demonstração' }).click();
+  await page.goto('./#/history');
+  await page.getByLabel('Manutenção').selectOption('maint-oil');
+  await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Confirmar exclusão' })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirmar exclusão' }).click();
+  await expect(page.getByText(/rollback seguro/)).toBeVisible();
+
+  const result = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return {
+      occurrence: saved.occurrences.find((item: { id: string }) => item.id === 'occ-oil'),
+      previous: saved.parts.find((item: { id: string }) => item.id === 'part-engine-oil'),
+      successor: saved.parts.find((item: { id: string }) => item.id === 'part-engine-oil-b'),
+      state: saved.componentStates.find(
+        (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'engine-oil'
+      ),
+      plan: saved.maintenancePlans.find((item: { id: string }) => item.id === 'maint-oil')
+    };
+  });
+  expect(result.occurrence).toBeUndefined();
+  expect(result.successor).toBeUndefined();
+  expect(result.previous.status).toBe('installed');
+  expect(result.previous.replacedByPartInstanceId).toBeUndefined();
+  expect(result.previous.removalOccurrenceId).toBeUndefined();
+  expect(result.state.currentPartInstanceId).toBe('part-engine-oil');
+  expect(result.plan).toMatchObject({ status: 'pending', isActive: true });
+  expect(result.plan.nextDueKm).toBeUndefined();
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();

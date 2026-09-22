@@ -262,10 +262,20 @@ export interface TimelineEvent {
   id: string;
   date: ISODate;
   type: string;
+  category?: string;
   title: string;
   detail: string;
   odometerKm?: number;
   href?: string;
+  system?: string;
+  componentDefinitionId?: string;
+  partInstanceId?: string;
+  positionId?: string;
+  maintenancePlanId?: string;
+  issueId?: string;
+  sourceType?:
+    'odometer' | 'maintenanceOccurrence' | 'part' | 'issue' | 'document' | 'warranty' | 'expense';
+  sourceId?: string;
 }
 
 export interface AppSettings {

@@ -88,7 +88,7 @@ Os arquivos não precisam ser renomeados para refletir status.
 - [x] [TASK-052 — Tornar persistência, sincronização e conflitos confiáveis](./TASK-052-persistence-sync-conflicts.md) — GAP-009/019/028
 - [x] [TASK-053 — Completar estornos, financeiro e dados do dashboard](./TASK-053-refunds-financial-dashboard.md) — GAP-010/029/030 — depende de TASK-048
 - [x] [TASK-054 — Completar recorrência e histórico do odômetro](./TASK-054-odometer-and-recurrence-history.md) — GAP-011/014/015
-- [ ] [TASK-055 — Completar documentos, histórico unificado e recomposição](./TASK-055-documents-unified-history-rollback.md) — GAP-016/017/018 — depende de TASK-054
+- [x] [TASK-055 — Completar documentos, histórico unificado e recomposição](./TASK-055-documents-unified-history-rollback.md) — GAP-016/017/018 — depende de TASK-054
 - [ ] [TASK-056 — Completar ciclo e contexto dos alertas](./TASK-056-alert-lifecycle-context.md) — GAP-020/021/022 — depende de TASK-049/051
 - [ ] [TASK-057 — Completar filtros, rascunhos e proteção de navegação](./TASK-057-drafts-filters-navigation-safety.md) — GAP-025/026/027 — depende de TASK-052
 - [ ] [TASK-058 — Ampliar regressão e validar release após os GAPs](./TASK-058-gap-regression-release.md) — seção 7/8 — depende de TASK-048 a TASK-057

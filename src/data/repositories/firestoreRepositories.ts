@@ -129,6 +129,43 @@ export async function saveMaintenanceCompletion(
   await batch.commit();
 }
 
+export interface OccurrenceHistoryWrite extends DerivedAlertsWrite {
+  occurrence?: MaintenanceOccurrence;
+  removedOccurrenceId?: string;
+  plan: MaintenancePlan;
+  parts: PartInstance[];
+  removedPartIds: string[];
+  componentStates: ComponentState[];
+  warranties: Warranty[];
+  removedWarrantyIds: string[];
+  issues: Issue[];
+  removedIssueIds: string[];
+}
+
+export async function saveOccurrenceHistoryChange(db: Firestore, input: OccurrenceHistoryWrite) {
+  const batch = writeBatch(db);
+  if (input.occurrence)
+    setBatchValue(batch, db, `${vehiclePath}/maintenanceOccurrences`, input.occurrence);
+  if (input.removedOccurrenceId)
+    batch.delete(doc(db, `${vehiclePath}/maintenanceOccurrences/${input.removedOccurrenceId}`));
+  setBatchValue(batch, db, `${vehiclePath}/maintenancePlans`, input.plan);
+  input.parts.forEach((part) => setBatchValue(batch, db, `${vehiclePath}/parts`, part));
+  input.removedPartIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/parts/${id}`)));
+  input.componentStates.forEach((state) =>
+    setBatchValue(batch, db, `${vehiclePath}/componentStates`, state)
+  );
+  input.warranties.forEach((warranty) =>
+    setBatchValue(batch, db, `${vehiclePath}/warranties`, warranty)
+  );
+  input.removedWarrantyIds.forEach((id) =>
+    batch.delete(doc(db, `${vehiclePath}/warranties/${id}`))
+  );
+  input.issues.forEach((issue) => setBatchValue(batch, db, `${vehiclePath}/issues`, issue));
+  input.removedIssueIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/issues/${id}`)));
+  addAlertsToBatch(batch, db, input);
+  await batch.commit();
+}
+
 export interface OdometerChangeWrite extends DerivedAlertsWrite {
   record?: OdometerRecord;
   removedRecordId?: string;
@@ -161,15 +198,17 @@ export async function saveMaintenanceCreation(db: Firestore, input: MaintenanceC
   await batch.commit();
 }
 
-export async function saveDocumentChange(
-  db: Firestore,
-  value: DocumentRecord,
-  alerts: AlertItem[],
-  removedAlertIds: string[]
-) {
+export interface DocumentChangeWrite extends DerivedAlertsWrite {
+  value?: DocumentRecord;
+  removedDocumentId?: string;
+}
+
+export async function saveDocumentChange(db: Firestore, input: DocumentChangeWrite) {
   const batch = writeBatch(db);
-  setBatchValue(batch, db, `${vehiclePath}/documents`, value);
-  addAlertsToBatch(batch, db, { alerts, removedAlertIds });
+  if (input.value) setBatchValue(batch, db, `${vehiclePath}/documents`, input.value);
+  if (input.removedDocumentId)
+    batch.delete(doc(db, `${vehiclePath}/documents/${input.removedDocumentId}`));
+  addAlertsToBatch(batch, db, input);
   await batch.commit();
 }
 

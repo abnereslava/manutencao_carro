@@ -56,11 +56,26 @@ export const maintenancePlanSchema = auditSchema
     }
   });
 
-export const documentSchema = auditSchema.extend({
-  id: z.string(),
-  type: z.enum(['ipva', 'licensing', 'insurance', 'custom']),
-  referenceYear: z.number().int().min(1900).max(2200),
-  name: z.string().min(2),
-  status: z.enum(['pending', 'paid', 'expired', 'active']),
-  observations: z.string()
-});
+export const documentSchema = auditSchema
+  .extend({
+    id: z.string(),
+    type: z.enum(['ipva', 'licensing', 'insurance', 'custom']),
+    customTypeName: z.string().optional(),
+    referenceYear: z.number().int().min(1900).max(2200),
+    name: z.string().min(2),
+    referenceNumber: z.string().optional(),
+    issueDate: z.string().optional(),
+    dueDate: z.string().optional(),
+    amountCents: z.number().int().nonnegative().optional(),
+    status: z.enum(['pending', 'paid', 'expired', 'active']),
+    documentUrl: z.url().optional(),
+    observations: z.string()
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === 'custom' && !value.customTypeName?.trim())
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Informe o tipo personalizado.',
+        path: ['customTypeName']
+      });
+  });

@@ -1631,6 +1631,9 @@ main {
   font-size: 12px;
 }
 @media (max-width: 760px) {
+  .history-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .warranty-list {
     grid-template-columns: 1fr;
   }
@@ -1932,6 +1935,18 @@ main {
   background: #8b5cf6;
   color: white;
 }
+.timeline-dot.inspection {
+  background: var(--color-status-warning);
+  color: white;
+}
+.timeline-dot.warranty {
+  background: #0f766e;
+  color: white;
+}
+.timeline-dot.expense {
+  background: #475569;
+  color: white;
+}
 .timeline-content {
   flex: 1;
   padding: 4px 18px 18px;
@@ -1956,6 +1971,68 @@ main {
 }
 .timeline-content small svg {
   width: 14px;
+}
+.history-source-link {
+  display: block;
+  width: fit-content;
+  margin-top: 9px;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 750;
+}
+.history-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.history-result-count {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.history-event-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.history-event-actions .button {
+  min-height: 36px;
+  padding-block: 7px;
+}
+.history-impact-note {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dependency-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.dependency-list > div {
+  display: grid;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-2);
+}
+.dependency-list > div.blocking {
+  border-color: color-mix(in srgb, var(--color-status-danger) 40%, var(--color-border));
+}
+.dependency-list b {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.dependency-list .blocking b {
+  color: var(--color-status-danger);
+}
+.dependency-list span {
+  font-size: 13px;
 }
 .latest-label {
   align-self: start;
@@ -2208,6 +2285,19 @@ main {
 .no-link {
   color: var(--color-text-muted);
   font-size: 11px;
+}
+.document-observations {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.document-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+.document-actions .button {
+  flex: 1;
 }
 
 .vehicle-page-grid {
@@ -2811,6 +2901,9 @@ main {
   }
 }
 @media (max-width: 560px) {
+  .history-filters {
+    grid-template-columns: 1fr;
+  }
   .hero-grid {
     gap: 12px;
   }

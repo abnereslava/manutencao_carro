@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { calculateExpense, clearExpenseRefund, setExpenseRefund } from './expenses';
+import { analyzeOccurrenceDependencies, deriveTimeline } from './history';
 import { calculateMaintenanceStatus, nextCycle } from './maintenance';
 import { getCurrentOdometer, sortOdometerRecords, validateOdometerReading } from './odometer';
 import { installPart, removePart } from './parts';
 import { calculateWarrantyState } from './warranty';
+import { seedData } from '../data/seed';
 import type {
   ComponentDefinition,
   ComponentState,
@@ -125,6 +127,79 @@ describe('manutenção', () => {
     expect(nextCycle({ recurrenceType: 'time', intervalYears: 2 }, 0, '2026-09-20')).toEqual({
       nextDueDate: '2028-09-20'
     });
+  });
+});
+
+describe('histórico derivado', () => {
+  it('deriva todos os grupos sem duplicar a instalação vinculada à ocorrência', () => {
+    const events = deriveTimeline(seedData);
+    expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
+    expect(events.map((event) => event.category)).toEqual(
+      expect.arrayContaining([
+        'maintenance',
+        'part',
+        'issue',
+        'document',
+        'warranty',
+        'odometer',
+        'expense'
+      ])
+    );
+    expect(
+      events.filter(
+        (event) => event.partInstanceId === 'part-engine-oil' && event.type === 'part_installed'
+      )
+    ).toHaveLength(1);
+  });
+
+  it('permite rollback A → B e bloqueia quando B já foi substituída', () => {
+    const data = structuredClone(seedData);
+    const occurrence = {
+      ...data.occurrences[0],
+      id: 'occ-replace',
+      partActions: [
+        {
+          id: 'replace-action',
+          componentDefinitionId: 'engine-oil',
+          partInstanceId: 'part-b',
+          action: 'replaced' as const
+        }
+      ]
+    };
+    const partA = {
+      ...data.parts[0],
+      id: 'part-a',
+      status: 'replaced' as const,
+      replacedByPartInstanceId: 'part-b',
+      removalOccurrenceId: occurrence.id
+    };
+    const partB: (typeof data.parts)[number] = {
+      ...data.parts[0],
+      id: 'part-b',
+      status: 'installed' as const,
+      installationOccurrenceId: occurrence.id,
+      replacedByPartInstanceId: undefined,
+      removalOccurrenceId: undefined
+    };
+
+    data.occurrences = [occurrence];
+    data.parts = [partA, partB];
+    data.componentStates = data.componentStates.map((state) =>
+      state.componentDefinitionId === 'engine-oil'
+        ? { ...state, currentPartInstanceId: 'part-b', status: 'installed' as const }
+        : state
+    );
+    data.warranties = [];
+    data.issues = [];
+
+    expect(analyzeOccurrenceDependencies(data, occurrence.id).canDelete).toBe(true);
+
+    partB.status = 'replaced';
+    partB.replacedByPartInstanceId = 'part-c';
+    partB.removalOccurrenceId = 'occ-later';
+    const blocked = analyzeOccurrenceDependencies(data, occurrence.id);
+    expect(blocked.canDelete).toBe(false);
+    expect(blocked.dependencies.some((dependency) => dependency.blocking)).toBe(true);
   });
 });
 
