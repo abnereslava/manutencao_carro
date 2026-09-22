@@ -7,6 +7,7 @@ import { getCurrentOdometer, sortOdometerRecords, validateOdometerReading } from
 import { installPart, removePart } from './parts';
 import { calculateWarrantyState } from './warranty';
 import { seedData } from '../data/seed';
+import { documentSchema } from '../types/schemas';
 import type {
   ComponentDefinition,
   ComponentState,
@@ -296,6 +297,50 @@ describe('garantia', () => {
         '2026-09-22'
       )
     ).toBe('expired');
+  });
+
+  it('distingue garantia ativa e próxima por data ou KM', () => {
+    expect(calculateWarrantyState(warranty({ endDate: '2026-12-31' }), 100, '2026-09-22')).toBe(
+      'active'
+    );
+    expect(calculateWarrantyState(warranty({ endDate: '2026-10-01' }), 100, '2026-09-22')).toBe(
+      'upcoming'
+    );
+    expect(calculateWarrantyState(warranty({ endOdometerKm: 1000 }), 950, '2026-09-22')).toBe(
+      'upcoming'
+    );
+  });
+});
+
+describe('documentos', () => {
+  const document = {
+    ...audit,
+    id: 'doc',
+    type: 'licensing' as const,
+    referenceYear: 2026,
+    name: 'Licenciamento 2026',
+    observations: ''
+  };
+
+  it.each(['pending', 'paid', 'active', 'expired'] as const)(
+    'aceita o estado operacional %s',
+    (status) => {
+      expect(documentSchema.safeParse({ ...document, status }).success).toBe(true);
+    }
+  );
+
+  it('exige o nome do tipo personalizado', () => {
+    expect(
+      documentSchema.safeParse({ ...document, type: 'custom', status: 'active' }).success
+    ).toBe(false);
+    expect(
+      documentSchema.safeParse({
+        ...document,
+        type: 'custom',
+        customTypeName: 'Laudo cautelar',
+        status: 'active'
+      }).success
+    ).toBe(true);
   });
 });
 

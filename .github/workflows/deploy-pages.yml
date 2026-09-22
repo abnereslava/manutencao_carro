@@ -24,11 +24,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - name: Validar formatação
+        run: npm run format:check
+      - name: Validar lint
+        run: npm run lint
+      - name: Validar tipos
+        run: npm run typecheck
+      - name: Executar testes unitários
+        run: npm test
+      - name: Executar testes das regras do Firestore
+        run: npm run test:rules
+      - name: Instalar Chromium para os testes E2E
+        run: npx playwright install --with-deps chromium
+      - name: Executar testes E2E desktop e mobile em modo demonstração
+        run: npm run test:e2e
+      - name: Gerar build de produção
+        run: npm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}

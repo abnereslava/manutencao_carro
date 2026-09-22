@@ -1,6 +1,6 @@
 # TASK-058 — Ampliar regressão e validar release após os GAPs
 
-**Status:** TODO
+**Status:** DONE
 
 **GAPs:** matriz de testes da seção 7 e Definition of Done da seção 8
 

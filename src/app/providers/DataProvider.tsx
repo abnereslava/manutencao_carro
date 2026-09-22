@@ -30,6 +30,18 @@ import { analyzeOccurrenceDependencies } from '../../domain/history';
 import { calculateMaintenanceStatus, nextCycle } from '../../domain/maintenance';
 import { getCurrentOdometer, validateOdometerReading } from '../../domain/odometer';
 import { installPart, removePart } from '../../domain/parts';
+import {
+  acquireMutationLock,
+  buildConflictSnapshot,
+  connectionChanged,
+  mutationFailed,
+  mutationStarted,
+  mutationSucceeded,
+  releaseMutationLock,
+  type ConflictSnapshot,
+  type MutationSyncState,
+  type MutationSyncStatus
+} from '../../domain/sync';
 import { todayISO, uid } from '../../lib/format';
 import {
   SCHEMA_VERSION,
@@ -179,14 +191,8 @@ interface DataContextValue {
   resetDemo: () => void;
 }
 
-export type SyncStatus = 'idle' | 'saving' | 'synced' | 'pending' | 'error';
-
-export interface SyncState {
-  status: SyncStatus;
-  pendingCount: number;
-  message?: string;
-  updatedAt?: string;
-}
+export type SyncStatus = MutationSyncStatus;
+export type SyncState = MutationSyncState;
 
 export type ConflictEntity =
   | 'vehicle'
@@ -210,15 +216,7 @@ export type ConflictValue =
   | Warranty
   | DocumentRecord;
 
-export interface DataConflict {
-  id: string;
-  entityType: ConflictEntity;
-  entityId: string;
-  local: ConflictValue;
-  remote: ConflictValue;
-  divergentFields: string[];
-  detectedAt: string;
-}
+export type DataConflict = ConflictSnapshot<ConflictEntity, ConflictValue>;
 
 const DataContext = createContext<DataContextValue | null>(null);
 const storageKey = 'carango-demo-data-v1';
@@ -232,23 +230,6 @@ function restoreConflicts(): DataConflict[] {
   } catch {
     return [];
   }
-}
-
-function divergentFields(local: ConflictValue, remote: ConflictValue) {
-  const ignored = new Set([
-    'schemaVersion',
-    'createdAt',
-    'createdBy',
-    'updatedAt',
-    'updatedBy',
-    'revision'
-  ]);
-  return [...new Set([...Object.keys(local), ...Object.keys(remote)])].filter(
-    (key) =>
-      !ignored.has(key) &&
-      JSON.stringify((local as unknown as Record<string, unknown>)[key]) !==
-        JSON.stringify((remote as unknown as Record<string, unknown>)[key])
-  );
 }
 
 function restoreDemo(): AppData {
@@ -302,20 +283,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const markPending = () => {
-      if (mutationLocks.current.size)
-        setSyncState((current) => ({
-          ...current,
-          status: 'pending',
-          message: 'Sem conexão. Alterações aguardando confirmação do servidor.'
-        }));
+      const next = connectionChanged(false, mutationLocks.current.size);
+      if (next) setSyncState(next);
     };
     const markSaving = () => {
-      if (mutationLocks.current.size)
-        setSyncState((current) => ({
-          ...current,
-          status: 'saving',
-          message: 'Conexão restaurada. Confirmando alterações…'
-        }));
+      const next = connectionChanged(true, mutationLocks.current.size);
+      if (next) setSyncState(next);
     };
     addEventListener('offline', markPending);
     addEventListener('online', markSaving);
@@ -417,36 +390,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const runMutation = async <T,>(key: string, action: () => Promise<T>): Promise<T> => {
-    if (mutationLocks.current.has(key))
-      throw new Error('Esta operação já está em andamento. Aguarde a confirmação.');
-    mutationLocks.current.add(key);
-    setSyncState({
-      status: navigator.onLine ? 'saving' : 'pending',
-      pendingCount: mutationLocks.current.size,
-      message: navigator.onLine
-        ? 'Salvando alterações…'
-        : 'Sem conexão. Alterações aguardando confirmação do servidor.'
-    });
+    const pendingCount = acquireMutationLock(mutationLocks.current, key);
+    setSyncState(mutationStarted(navigator.onLine, pendingCount));
     try {
       const result = await action();
       if (database.current) await waitForPendingWrites(database.current);
       const remaining = Math.max(0, mutationLocks.current.size - 1);
-      setSyncState({
-        status: remaining ? (navigator.onLine ? 'saving' : 'pending') : 'synced',
-        pendingCount: remaining,
-        message: remaining ? 'Ainda há alterações sendo salvas…' : 'Alterações sincronizadas.',
-        updatedAt: new Date().toISOString()
-      });
+      setSyncState(mutationSucceeded(navigator.onLine, remaining, new Date().toISOString()));
       return result;
     } catch (error) {
-      setSyncState({
-        status: 'error',
-        pendingCount: Math.max(0, mutationLocks.current.size - 1),
-        message: error instanceof Error ? error.message : 'Não foi possível salvar as alterações.'
-      });
+      setSyncState(mutationFailed(Math.max(0, mutationLocks.current.size - 1), error));
       throw error;
     } finally {
-      mutationLocks.current.delete(key);
+      releaseMutationLock(mutationLocks.current, key);
     }
   };
 
@@ -485,22 +441,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   ) => {
     if (user?.demo || !repositories.current) return;
     const remote = await getRemoteEntity(entityType, base.id);
-    if (
-      !remote ||
-      (remote.revision === base.revision &&
-        remote.updatedAt === base.updatedAt &&
-        remote.updatedBy === base.updatedBy)
-    )
-      return;
-    const conflict: DataConflict = {
-      id: `${entityType}:${base.id}`,
+    const conflict = buildConflictSnapshot(
       entityType,
-      entityId: base.id,
+      base,
       local,
       remote,
-      divergentFields: divergentFields(local, remote),
-      detectedAt: new Date().toISOString()
-    };
+      new Date().toISOString()
+    );
+    if (!conflict) return;
     setConflicts((current) => [conflict, ...current.filter((item) => item.id !== conflict.id)]);
     throw new Error('Conflito detectado. Escolha qual versão deve ser mantida.');
   };
