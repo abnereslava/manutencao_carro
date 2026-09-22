@@ -37,6 +37,7 @@ import {
   mutationFailed,
   mutationStarted,
   mutationSucceeded,
+  normalizeConflictSnapshot,
   releaseMutationLock,
   type ConflictSnapshot,
   type MutationSyncState,
@@ -218,6 +219,18 @@ export type ConflictValue =
 
 export type DataConflict = ConflictSnapshot<ConflictEntity, ConflictValue>;
 
+const conflictEntityTypes: readonly ConflictEntity[] = [
+  'vehicle',
+  'odometer',
+  'componentState',
+  'part',
+  'maintenanceOccurrence',
+  'maintenancePlan',
+  'issue',
+  'warranty',
+  'document'
+];
+
 const DataContext = createContext<DataContextValue | null>(null);
 const storageKey = 'carango-demo-data-v1';
 const conflictStorageKey = 'carango-sync-conflicts-v1';
@@ -226,7 +239,14 @@ type Repositories = ReturnType<typeof createRepositories>;
 function restoreConflicts(): DataConflict[] {
   try {
     const value = sessionStorage.getItem(conflictStorageKey);
-    return value ? (JSON.parse(value) as DataConflict[]) : [];
+    if (!value) return [];
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) =>
+        normalizeConflictSnapshot<ConflictEntity, ConflictValue>(item, conflictEntityTypes)
+      )
+      .filter((item): item is DataConflict => item !== null);
   } catch {
     return [];
   }

@@ -43,6 +43,55 @@ export function findDivergentFields<TValue extends AuditMetadata & { id: string 
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStoredEntity(value: unknown): value is AuditMetadata & { id: string } {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === 'string' &&
+    typeof value.schemaVersion === 'number' &&
+    typeof value.createdAt === 'string' &&
+    typeof value.createdBy === 'string' &&
+    typeof value.updatedAt === 'string' &&
+    typeof value.updatedBy === 'string' &&
+    typeof value.revision === 'number'
+  );
+}
+
+export function normalizeConflictSnapshot<
+  TEntityType extends string,
+  TValue extends AuditMetadata & { id: string }
+>(
+  value: unknown,
+  allowedEntityTypes: readonly TEntityType[]
+): ConflictSnapshot<TEntityType, TValue> | null {
+  if (!isRecord(value) || !allowedEntityTypes.includes(value.entityType as TEntityType))
+    return null;
+  if (!isStoredEntity(value.local) || !isStoredEntity(value.remote)) return null;
+  if (value.local.id !== value.remote.id) return null;
+
+  const local = value.local as TValue;
+  const remote = value.remote as TValue;
+  return {
+    id:
+      typeof value.id === 'string'
+        ? value.id
+        : `${String(value.entityType)}:${String(value.local.id)}`,
+    entityType: value.entityType as TEntityType,
+    entityId: typeof value.entityId === 'string' ? value.entityId : value.local.id,
+    local,
+    remote,
+    divergentFields:
+      Array.isArray(value.divergentFields) &&
+      value.divergentFields.every((field) => typeof field === 'string')
+        ? value.divergentFields
+        : findDivergentFields(local, remote),
+    detectedAt: typeof value.detectedAt === 'string' ? value.detectedAt : ''
+  };
+}
+
 export function buildConflictSnapshot<
   TEntityType extends string,
   TValue extends AuditMetadata & { id: string }

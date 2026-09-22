@@ -7,6 +7,7 @@ import {
   mutationFailed,
   mutationStarted,
   mutationSucceeded,
+  normalizeConflictSnapshot,
   releaseMutationLock
 } from '.';
 
@@ -57,6 +58,28 @@ describe('concorrência otimista', () => {
     });
     expect(conflict?.local).toEqual(local);
     expect(conflict?.remote).toEqual(remote);
+  });
+
+  it('migra conflito legado sem campos divergentes e descarta estado inválido', () => {
+    const local = vehicle({ color: 'Vermelho', revision: 2 });
+    const remote = vehicle({ color: 'Azul', observations: 'Servidor', revision: 2 });
+    const migrated = normalizeConflictSnapshot(
+      {
+        id: 'vehicle:sandero',
+        entityType: 'vehicle',
+        entityId: 'sandero',
+        local,
+        remote,
+        detectedAt: '2026-09-22'
+      },
+      ['vehicle'] as const
+    );
+
+    expect(migrated?.divergentFields).toEqual(['color', 'observations']);
+    expect(normalizeConflictSnapshot({ entityType: 'vehicle' }, ['vehicle'] as const)).toBeNull();
+    expect(
+      normalizeConflictSnapshot({ ...migrated, entityType: 'unknown' }, ['vehicle'] as const)
+    ).toBeNull();
   });
 });
 

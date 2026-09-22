@@ -662,6 +662,57 @@ test('rascunhos extensos são retomados sem criar efeitos de domínio', async ({
   expect(after).toBeNull();
 });
 
+test('conflito legado salvo na sessão é migrado sem apagar a interface', async ({ page }) => {
+  await page.evaluate(() => {
+    const metadata = {
+      schemaVersion: 1,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'owner@example.com',
+      updatedAt: '2026-09-22T00:00:00.000Z',
+      updatedBy: 'owner@example.com',
+      revision: 2
+    };
+    const vehicle = {
+      ...metadata,
+      id: 'sandero',
+      manufacturer: 'Renault',
+      model: 'Sandero',
+      trim: 'Expression',
+      year: 2013,
+      modelYear: 2014,
+      engine: '1.6 8V',
+      fuelType: 'Flex',
+      color: 'Prata',
+      plate: '',
+      renavam: '',
+      chassis: '',
+      currentOdometer: 148000,
+      observations: ''
+    };
+    sessionStorage.setItem(
+      'carango-sync-conflicts-v1',
+      JSON.stringify([
+        {
+          id: 'vehicle:sandero',
+          entityType: 'vehicle',
+          entityId: 'sandero',
+          local: { ...vehicle, color: 'Vermelho' },
+          remote: { ...vehicle, color: 'Azul', observations: 'Servidor' },
+          detectedAt: '2026-09-22T00:00:00.000Z'
+        }
+      ])
+    );
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Explorar demonstração' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Conflito de sincronização' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('color', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('observations', { exact: true })).toBeVisible();
+  await expect(page.locator('.app-shell')).toBeVisible();
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();
