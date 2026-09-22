@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { calculateExpense } from './expenses';
 import { calculateMaintenanceStatus, nextCycle } from './maintenance';
 import { getCurrentOdometer, sortOdometerRecords, validateOdometerReading } from './odometer';
-import { removePart } from './parts';
+import { installPart, removePart } from './parts';
 import type { ComponentDefinition, ComponentState, OdometerRecord } from '../types/domain';
 
 const audit = {
@@ -106,6 +106,29 @@ describe('financeiro', () => {
 });
 
 describe('integridade de peça essencial', () => {
+  it('instala a nova instância como peça atual', () => {
+    const state: ComponentState = {
+      ...audit,
+      id: 's',
+      componentDefinitionId: 'battery',
+      state: 'missing',
+      observations: ''
+    };
+    const next = installPart(state, {
+      ...audit,
+      id: 'new-part',
+      componentDefinitionId: 'battery',
+      name: 'Bateria nova',
+      conditionAtInstall: 'new',
+      priorLifeKnown: true,
+      technicalConditionData: {},
+      status: 'installed',
+      observations: ''
+    });
+    expect(next).toMatchObject({ state: 'installed', currentPartInstanceId: 'new-part' });
+    expect(next.revision).toBe(state.revision + 1);
+  });
+
   it('cria alerta crítico não adiável ao remover', () => {
     const state: ComponentState = {
       ...audit,
@@ -130,5 +153,31 @@ describe('integridade de peça essencial', () => {
     const result = removePart(state, component);
     expect(result.state.state).toBe('missing');
     expect(result.alert).toMatchObject({ priority: 'critical', canSnooze: false });
+  });
+
+  it('remove componente opcional sem criar alerta crítico', () => {
+    const state: ComponentState = {
+      ...audit,
+      id: 's',
+      componentDefinitionId: 'air-conditioning',
+      currentPartInstanceId: 'p',
+      state: 'installed',
+      observations: ''
+    };
+    const component: ComponentDefinition = {
+      id: 'air-conditioning',
+      name: 'Ar-condicionado',
+      category: 'Conforto',
+      system: 'Climatização',
+      positionId: 'cabin',
+      isEssential: false,
+      isOptional: true,
+      searchTerms: [],
+      technicalFieldSchema: [],
+      sortOrder: 1
+    };
+    const result = removePart(state, component);
+    expect(result.state).toMatchObject({ state: 'unknown', currentPartInstanceId: undefined });
+    expect(result.alert).toBeUndefined();
   });
 });

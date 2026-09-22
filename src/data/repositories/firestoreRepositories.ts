@@ -80,6 +80,7 @@ export interface MaintenanceCompletionWrite {
   componentStates: ComponentState[];
   warranty?: Warranty;
   alerts: AlertItem[];
+  removedAlertIds: string[];
 }
 
 export async function saveMaintenanceCompletion(
@@ -98,6 +99,32 @@ export async function saveMaintenanceCompletion(
   input.componentStates.forEach((state) => setValue(`${vehiclePath}/componentStates`, state));
   if (input.warranty) setValue(`${vehiclePath}/warranties`, input.warranty);
   input.alerts.forEach((alert) => setValue(`${vehiclePath}/alertStates`, alert));
+  input.removedAlertIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/alertStates/${id}`)));
+  await batch.commit();
+}
+
+export async function saveComponentStateChange(
+  db: Firestore,
+  state: ComponentState,
+  alerts: AlertItem[],
+  removedAlertIds: string[]
+): Promise<void> {
+  const batch = writeBatch(db);
+  const stateRef = doc(
+    collection(db, `${vehiclePath}/componentStates`).withConverter(
+      createConverter<ComponentState>()
+    ),
+    state.id
+  );
+  batch.set(stateRef, state);
+  alerts.forEach((alert) => {
+    const alertRef = doc(
+      collection(db, `${vehiclePath}/alertStates`).withConverter(createConverter<AlertItem>()),
+      alert.id
+    );
+    batch.set(alertRef, alert);
+  });
+  removedAlertIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/alertStates/${id}`)));
   await batch.commit();
 }
 

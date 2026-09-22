@@ -14,6 +14,7 @@ import { getComponent, SANDERO_COMPONENTS } from '../../catalog/components/sande
 import { getInitializedDataStore } from '../../data/firebase/config';
 import {
   createRepositories,
+  saveComponentStateChange,
   saveMaintenanceCompletion
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
@@ -60,8 +61,26 @@ interface DataContextValue {
       initialPerformedDate?: string;
       initialPerformedKm?: number;
     }
-  ) => void;
+  ) => string;
   completeMaintenance: (id: string, input: MaintenanceCompletionInput) => Promise<void>;
+  updatePart: (
+    id: string,
+    input: Pick<
+      PartInstance,
+      | 'name'
+      | 'manufacturer'
+      | 'brand'
+      | 'model'
+      | 'partCode'
+      | 'conditionAtInstall'
+      | 'priorLifeKnown'
+      | 'initialConditionNotes'
+      | 'supplier'
+      | 'purchasePriceCents'
+      | 'observations'
+    >
+  ) => Promise<void>;
+  setComponentNotApplicable: (componentDefinitionId: string, value: boolean) => Promise<void>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => void;
@@ -285,12 +304,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       void repositories.current?.vehicles.save(nextVehicle);
       return { ...current, vehicle: nextVehicle };
     });
-  const saveMaintenance: DataContextValue['saveMaintenance'] = (input) =>
+  const saveMaintenance: DataContextValue['saveMaintenance'] = (input) => {
+    const planId = uid('maint');
     persist((current) => {
       const { initialPerformedDate, initialPerformedKm, ...planInput } = input;
       const plan = {
         ...audit(),
-        id: uid('maint'),
+        id: planId,
         status: 'ok',
         isActive: true,
         ...planInput
@@ -326,6 +346,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       };
       return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
     });
+    return planId;
+  };
   const completeMaintenance: DataContextValue['completeMaintenance'] = async (id, input) => {
     const current = data;
     const plan = current.maintenancePlans.find((item) => item.id === id);
@@ -508,9 +530,84 @@ export function DataProvider({ children }: { children: ReactNode }) {
         parts: [...changedParts.values()],
         componentStates: [...changedStates.values()],
         warranty,
-        alerts: next.alerts
+        alerts: next.alerts,
+        removedAlertIds: current.alerts
+          .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+          .map((alert) => alert.id)
       });
     }
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const updatePart: DataContextValue['updatePart'] = async (id, input) => {
+    const current = data;
+    const part = current.parts.find((item) => item.id === id);
+    if (!part) throw new Error('Peça não encontrada.');
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para editar esta peça.');
+    const updated: PartInstance = {
+      ...part,
+      ...input,
+      name: input.name.trim(),
+      manufacturer: input.manufacturer?.trim() || undefined,
+      brand: input.brand?.trim() || undefined,
+      model: input.model?.trim() || undefined,
+      partCode: input.partCode?.trim() || undefined,
+      initialConditionNotes: input.initialConditionNotes?.trim() || undefined,
+      supplier: input.supplier?.trim() || undefined,
+      observations: input.observations.trim(),
+      revision: part.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    if (!updated.name) throw new Error('Informe o nome da peça.');
+    if (updated.purchasePriceCents !== undefined && updated.purchasePriceCents < 0)
+      throw new Error('O preço da peça não pode ser negativo.');
+    if (repositories.current) await repositories.current.parts.save(updated);
+    const next = {
+      ...current,
+      parts: current.parts.map((item) => (item.id === id ? updated : item))
+    };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const setComponentNotApplicable: DataContextValue['setComponentNotApplicable'] = async (
+    componentDefinitionId,
+    value
+  ) => {
+    const current = data;
+    const component = getComponent(componentDefinitionId);
+    const state = current.componentStates.find(
+      (item) => item.componentDefinitionId === componentDefinitionId
+    );
+    if (!component || !state) throw new Error('Componente não encontrado.');
+    if (value && state.currentPartInstanceId)
+      throw new Error('Remova a peça instalada antes de marcar o componente como não aplicável.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para atualizar este componente.');
+    const updatedState = {
+      ...state,
+      state: value
+        ? ('notApplicable' as const)
+        : component.isEssential
+          ? ('missing' as const)
+          : ('unknown' as const),
+      revision: state.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    const base = {
+      ...current,
+      componentStates: current.componentStates.map((item) =>
+        item.id === state.id ? updatedState : item
+      )
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    const removedAlertIds = current.alerts
+      .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+      .map((alert) => alert.id);
+    if (database.current)
+      await saveComponentStateChange(database.current, updatedState, next.alerts, removedAlertIds);
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
@@ -567,6 +664,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       saveVehicle,
       saveMaintenance,
       completeMaintenance,
+      updatePart,
+      setComponentNotApplicable,
       addDocument,
       markAlertSeen,
       snoozeAlert,

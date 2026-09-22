@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { useData } from '../../app/providers/DataProvider';
 import { SANDERO_COMPONENTS } from '../../catalog/components/sandero';
@@ -23,6 +23,7 @@ interface PartActionDraft {
   initialConditionNotes: string;
   purchasePrice: string;
   observations: string;
+  essentialRemovalConfirmed: boolean;
 }
 
 function newPartAction(
@@ -41,7 +42,8 @@ function newPartAction(
     priorLifeKnown: true,
     initialConditionNotes: '',
     purchasePrice: '',
-    observations: ''
+    observations: '',
+    essentialRemovalConfirmed: false
   };
 }
 
@@ -54,6 +56,7 @@ function currencyToCents(value: string): number {
 export function CompleteMaintenancePage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data, completeMaintenance } = useData();
   const { toast } = useToast();
   const [date, setDate] = useState(todayISO());
@@ -65,7 +68,21 @@ export function CompleteMaintenancePage() {
   const [otherCost, setOtherCost] = useState('');
   const [manualOverrideEnabled, setManualOverrideEnabled] = useState(false);
   const [manualTotal, setManualTotal] = useState('');
-  const [partActions, setPartActions] = useState<PartActionDraft[]>([]);
+  const [partActions, setPartActions] = useState<PartActionDraft[]>(() => {
+    const componentDefinitionId = searchParams.get('component') ?? '';
+    const requestedAction = searchParams.get('action');
+    const allowedActions: PartActionDraft['action'][] = [
+      'installed',
+      'replaced',
+      'removed',
+      'inspected',
+      'repaired'
+    ];
+    return componentDefinitionId &&
+      allowedActions.includes(requestedAction as PartActionDraft['action'])
+      ? [newPartAction(componentDefinitionId, requestedAction as PartActionDraft['action'])]
+      : [];
+  });
   const [hasWarranty, setHasWarranty] = useState(false);
   const [warrantyEndDate, setWarrantyEndDate] = useState('');
   const [warrantyEndKm, setWarrantyEndKm] = useState('');
@@ -129,6 +146,18 @@ export function CompleteMaintenancePage() {
       )
     ) {
       setSubmitError('Revise os componentes, nomes e custos das ações de peças.');
+      return;
+    }
+    if (
+      partActions.some(
+        (action) =>
+          action.action === 'removed' &&
+          SANDERO_COMPONENTS.find((component) => component.id === action.componentDefinitionId)
+            ?.isEssential &&
+          !action.essentialRemovalConfirmed
+      )
+    ) {
+      setSubmitError('Confirme a remoção dos componentes essenciais antes de continuar.');
       return;
     }
     if (hasWarranty && !warrantyEndDate && warrantyEndKm === '') {
@@ -319,7 +348,8 @@ export function CompleteMaintenancePage() {
                               );
                               return {
                                 componentDefinitionId: event.target.value,
-                                action: state?.currentPartInstanceId ? 'inspected' : 'installed'
+                                action: state?.currentPartInstanceId ? 'inspected' : 'installed',
+                                essentialRemovalConfirmed: false
                               };
                             })()
                           )
@@ -337,7 +367,8 @@ export function CompleteMaintenancePage() {
                         value={action.action}
                         onChange={(event) =>
                           updatePartAction(action.id, {
-                            action: event.target.value as PartActionDraft['action']
+                            action: event.target.value as PartActionDraft['action'],
+                            essentialRemovalConfirmed: false
                           })
                         }
                       >
@@ -354,6 +385,29 @@ export function CompleteMaintenancePage() {
                             : 'Este componente não possui peça instalada.'}
                         </p>
                       )}
+                      {action.action === 'removed' &&
+                        SANDERO_COMPONENTS.find((item) => item.id === action.componentDefinitionId)
+                          ?.isEssential && (
+                          <div className="essential-removal-warning full">
+                            <b>Atenção: componente essencial</b>
+                            <p>
+                              Esta remoção deixará o componente sem peça instalada e criará um
+                              alerta crítico. Nenhum item será mantido como estoque.
+                            </p>
+                            <label className="checkbox-field">
+                              <input
+                                type="checkbox"
+                                checked={action.essentialRemovalConfirmed}
+                                onChange={(event) =>
+                                  updatePartAction(action.id, {
+                                    essentialRemovalConfirmed: event.target.checked
+                                  })
+                                }
+                              />
+                              Confirmo a remoção desta peça essencial
+                            </label>
+                          </div>
+                        )}
                       {createsPart && (
                         <>
                           <Input

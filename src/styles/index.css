@@ -1408,6 +1408,34 @@ main {
 .part-action-context {
   margin: -4px 0 0;
 }
+.essential-removal-warning {
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--color-status-danger) 45%, var(--color-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-status-danger) 8%, var(--color-surface));
+}
+.essential-removal-warning p {
+  margin: 5px 0 10px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.part-indicators {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+.part-indicators h3 {
+  margin: 0 0 14px;
+}
+.part-operation-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 18px 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
 .warranty-section {
   margin-top: 18px;
 }
@@ -1421,9 +1449,23 @@ main {
 
 .parts-toolbar {
   justify-content: start;
+  flex-wrap: wrap;
 }
 .parts-toolbar .field {
   min-width: 220px;
+}
+.parts-filter-toggles {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+.parts-filter-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 .parts-grid {
   display: grid;

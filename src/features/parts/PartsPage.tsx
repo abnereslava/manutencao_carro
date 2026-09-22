@@ -11,9 +11,11 @@ import {
 } from 'lucide-react';
 import { useData } from '../../app/providers/DataProvider';
 import { SANDERO_COMPONENTS, SYSTEMS } from '../../catalog/components/sandero';
-import { positionLabel } from '../../catalog/positions/vehicle-positions';
+import { positionLabel, VEHICLE_POSITIONS } from '../../catalog/positions/vehicle-positions';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Card, EmptyState, Select, Tabs } from '../../components/ui';
+import { calculateWarrantyState } from '../../domain/warranty';
+import { todayISO } from '../../lib/format';
 
 const stateMeta = {
   installed: { label: 'Instalada', tone: 'success' as const, icon: CheckCircle2 },
@@ -31,6 +33,14 @@ export function PartsPage() {
   const [tab, setTabState] = useState(initial);
   const [query, setQuery] = useState('');
   const [system, setSystem] = useState('');
+  const [category, setCategory] = useState('');
+  const [position, setPosition] = useState('');
+  const [componentStatus, setComponentStatus] = useState('');
+  const [withHistory, setWithHistory] = useState(false);
+  const [withWarranty, setWithWarranty] = useState(false);
+  const [warrantyUpcoming, setWarrantyUpcoming] = useState(false);
+  const [withRecurrence, setWithRecurrence] = useState(false);
+  const [withAlert, setWithAlert] = useState(false);
   const setTab = (value: string) => {
     setTabState(value);
     localStorage.setItem('carango-parts-tab', value);
@@ -41,19 +51,92 @@ export function PartsPage() {
         const state = data.componentStates.find(
           (item) => item.componentDefinitionId === component.id
         );
+        const componentParts = data.parts.filter(
+          (part) => part.componentDefinitionId === component.id
+        );
+        const currentPart = componentParts.find((part) => part.id === state?.currentPartInstanceId);
+        const warranties = currentPart
+          ? data.warranties.filter((warranty) => warranty.partInstanceId === currentPart.id)
+          : [];
+        const hasUpcomingWarranty = warranties.some(
+          (warranty) =>
+            calculateWarrantyState(
+              warranty,
+              data.vehicle.currentOdometer,
+              todayISO(),
+              data.settings.alertDaysThreshold,
+              data.settings.alertKmThreshold
+            ) === 'upcoming'
+        );
+        const hasRecurrence = data.maintenancePlans.some(
+          (plan) =>
+            plan.componentDefinitionId === component.id &&
+            plan.isActive &&
+            plan.recurrenceType !== 'none'
+        );
+        const relatedPlanIds = new Set(
+          data.maintenancePlans
+            .filter((plan) => plan.componentDefinitionId === component.id)
+            .map((plan) => plan.id)
+        );
+        const hasAlert = data.alerts.some(
+          (alert) =>
+            !alert.resolved &&
+            !alert.hidden &&
+            ((alert.sourceType === 'part' &&
+              (alert.sourceId === component.id ||
+                componentParts.some((part) => part.id === alert.sourceId))) ||
+              (alert.sourceType === 'maintenance' && relatedPlanIds.has(alert.sourceId)))
+        );
         const matches =
-          `${component.name} ${component.system} ${component.category} ${positionLabel(component.positionId)}`
+          `${component.name} ${component.system} ${component.category} ${positionLabel(component.positionId)} ${currentPart?.brand ?? ''} ${currentPart?.model ?? ''} ${currentPart?.partCode ?? ''}`
             .toLocaleLowerCase('pt-BR')
             .includes(query.toLocaleLowerCase('pt-BR'));
         return (
           matches &&
           (!system || component.system === system) &&
+          (!category || component.category === category) &&
+          (!position || component.positionId === position) &&
+          (!componentStatus || state?.state === componentStatus) &&
+          (!withHistory || componentParts.length > 0) &&
+          (!withWarranty || warranties.length > 0) &&
+          (!warrantyUpcoming || hasUpcomingWarranty) &&
+          (!withRecurrence || hasRecurrence) &&
+          (!withAlert || hasAlert) &&
           (tab !== 'missing' || state?.state === 'missing')
         );
       }),
-    [data.componentStates, query, system, tab]
+    [
+      category,
+      componentStatus,
+      data,
+      position,
+      query,
+      system,
+      tab,
+      warrantyUpcoming,
+      withAlert,
+      withHistory,
+      withRecurrence,
+      withWarranty
+    ]
   );
   const missingCount = data.componentStates.filter((item) => item.state === 'missing').length;
+  const categories = [...new Set(SANDERO_COMPONENTS.map((component) => component.category))].sort(
+    (a, b) => a.localeCompare(b, 'pt-BR')
+  );
+  const hasFilters = Boolean(
+    query ||
+    system ||
+    category ||
+    position ||
+    componentStatus ||
+    withHistory ||
+    withWarranty ||
+    warrantyUpcoming ||
+    withRecurrence ||
+    withAlert
+  );
   return (
     <>
       <PageHeader
@@ -77,7 +160,7 @@ export function PartsPage() {
           <Search />
           <input
             aria-label="Buscar peças"
-            placeholder="Componente, sistema ou posição"
+            placeholder="Componente, marca, modelo, código, sistema ou posição"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -88,10 +171,77 @@ export function PartsPage() {
             <option key={item}>{item}</option>
           ))}
         </Select>
+        <Select label="Categoria" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">Todas as categorias</option>
+          {categories.map((item) => (
+            <option key={item}>{item}</option>
+          ))}
+        </Select>
+        <Select label="Posição" value={position} onChange={(e) => setPosition(e.target.value)}>
+          <option value="">Todas as posições</option>
+          {VEHICLE_POSITIONS.map((item) => (
+            <option value={item.id} key={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          label="Estado"
+          value={componentStatus}
+          onChange={(e) => setComponentStatus(e.target.value)}
+        >
+          <option value="">Todos os estados</option>
+          <option value="installed">Instalada</option>
+          <option value="missing">Faltando</option>
+          <option value="unknown">Sem informações</option>
+          <option value="notApplicable">Não se aplica</option>
+        </Select>
+        <div className="parts-filter-toggles" aria-label="Filtros adicionais">
+          <label>
+            <input
+              type="checkbox"
+              checked={withHistory}
+              onChange={(e) => setWithHistory(e.target.checked)}
+            />{' '}
+            Possui histórico
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={withWarranty}
+              onChange={(e) => setWithWarranty(e.target.checked)}
+            />{' '}
+            Possui garantia
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={warrantyUpcoming}
+              onChange={(e) => setWarrantyUpcoming(e.target.checked)}
+            />{' '}
+            Garantia próxima
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={withRecurrence}
+              onChange={(e) => setWithRecurrence(e.target.checked)}
+            />{' '}
+            Possui recorrência
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={withAlert}
+              onChange={(e) => setWithAlert(e.target.checked)}
+            />{' '}
+            Possui alerta
+          </label>
+        </div>
       </div>
-      {tab === 'car' && !query && !system ? (
+      {tab === 'car' && !hasFilters ? (
         <VehicleSystems />
-      ) : tab === 'systems' && !query && !system ? (
+      ) : tab === 'systems' && !hasFilters ? (
         <SystemsView />
       ) : tab === 'history' ? (
         <PartsHistory />

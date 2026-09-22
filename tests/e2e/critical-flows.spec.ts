@@ -69,6 +69,66 @@ test('alerta crítico não oferece adiamento quando não permitido', async ({ pa
   await expect(critical).toContainText('Crítico');
 });
 
+test('Hub de Peças busca dados da peça e inicia ação vinculada à manutenção', async ({ page }) => {
+  await page.goto('./#/parts');
+  await page.getByLabel('Buscar peças').fill('Moura');
+  await expect(page.getByRole('heading', { name: 'Bateria' })).toBeVisible();
+
+  await page.goto('./#/parts/engine-oil');
+  await page.getByRole('button', { name: 'Editar peça' }).click();
+  await page.getByLabel('Marca').fill('Mobil');
+  await page.getByRole('button', { name: 'Salvar alterações' }).click();
+  await expect(page.getByText('Peça atualizada.')).toBeVisible();
+  await expect(page.getByText(/Mobil/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Inspecionar' }).click();
+  await expect(page).toHaveURL(/maintenance\/maint-oil\/complete/);
+  await expect(page.getByRole('combobox', { name: 'Componente', exact: true })).toHaveValue(
+    'engine-oil'
+  );
+  await expect(page.getByRole('combobox', { name: 'Ação executada' })).toHaveValue('inspected');
+  await page.getByRole('button', { name: 'Adicionar ação' }).click();
+  await page.getByRole('combobox', { name: 'Ação executada' }).nth(1).selectOption('repaired');
+  await page.getByRole('button', { name: 'Confirmar conclusão' }).click();
+  await expect(page.getByText(/próximo ciclo recalculado/i)).toBeVisible();
+  const partActions = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return {
+      actions: saved.occurrences[0].partActions.map((action: { action: string }) => action.action),
+      currentPartInstanceId: saved.componentStates.find(
+        (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'engine-oil'
+      ).currentPartInstanceId
+    };
+  });
+  expect(partActions).toEqual({
+    actions: ['inspected', 'repaired'],
+    currentPartInstanceId: 'part-engine-oil'
+  });
+
+  await page.goto('./#/parts/engine-oil');
+  await page.getByRole('button', { name: 'Remover/descartar' }).click();
+  await expect(page.getByLabel('Confirmo a remoção desta peça essencial')).toBeVisible();
+});
+
+test('componente pode sair e voltar ao estado não aplicável', async ({ page }) => {
+  await page.goto('./#/parts/air-conditioning');
+  await page.getByRole('button', { name: 'Tornar aplicável' }).click();
+  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(page.getByText('Componente voltou ao estado aplicável.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sem informações' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Não se aplica' }).click();
+  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(page.getByText('Componente marcado como não aplicável.')).toBeVisible();
+  const state = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return saved.componentStates.find(
+      (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'air-conditioning'
+    );
+  });
+  expect(state).toMatchObject({ state: 'notApplicable' });
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();

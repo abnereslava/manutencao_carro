@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useData } from '../../app/providers/DataProvider';
 import { SANDERO_COMPONENTS } from '../../catalog/components/sandero';
@@ -45,7 +45,34 @@ export function NewMaintenancePage() {
   const { saveMaintenance } = useData();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { value, setValue, status, clear } = useDraft('new-maintenance', initial);
+  const [searchParams] = useSearchParams();
+  const requestedComponentId = searchParams.get('component') ?? '';
+  const requestedAction = searchParams.get('action') ?? '';
+  const requestedComponent = SANDERO_COMPONENTS.find(
+    (component) => component.id === requestedComponentId
+  );
+  const actionLabels: Record<string, string> = {
+    installed: 'Instalar',
+    replaced: 'Substituir',
+    removed: 'Remover',
+    inspected: 'Inspecionar',
+    repaired: 'Reparar'
+  };
+  const requestedInitial: MaintenanceDraft = requestedComponent
+    ? {
+        ...initial,
+        title: `${actionLabels[requestedAction] ?? 'Manutenção em'} ${requestedComponent.name}`,
+        type: requestedAction === 'inspected' ? 'inspection' : 'corrective',
+        priority: requestedComponent.isEssential ? 'high' : 'medium',
+        recurrenceType: 'none',
+        componentDefinitionId: requestedComponent.id,
+        description: `Ação iniciada pelo Hub de Peças para ${requestedComponent.name}.`
+      }
+    : initial;
+  const draftKey = requestedComponent
+    ? `new-maintenance-${requestedComponent.id}-${requestedAction || 'related'}`
+    : 'new-maintenance';
+  const { value, setValue, status, clear } = useDraft(draftKey, requestedInitial);
   const [titleError, setTitleError] = useState('');
   const [cycleError, setCycleError] = useState('');
 
@@ -106,7 +133,7 @@ export function NewMaintenancePage() {
       return;
     }
 
-    saveMaintenance({
+    const planId = saveMaintenance({
       title: value.title,
       type: value.type,
       priority: value.priority,
@@ -128,7 +155,11 @@ export function NewMaintenancePage() {
 
     clear();
     toast('Plano de manutenção criado.');
-    navigate('/maintenance');
+    navigate(
+      requestedComponent && requestedAction
+        ? `/maintenance/${planId}/complete?component=${requestedComponent.id}&action=${requestedAction}`
+        : '/maintenance'
+    );
   };
 
   return (
