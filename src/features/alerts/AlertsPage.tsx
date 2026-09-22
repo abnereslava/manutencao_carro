@@ -1,5 +1,7 @@
 import { AlertTriangle, Bell, CalendarClock, CheckCheck, Eye, Gauge, MoonStar } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../../app/providers/DataProvider';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
@@ -9,6 +11,23 @@ import { formatDate, formatKm } from '../../lib/format';
 export function AlertsPage() {
   const { data, markAlertSeen, snoozeAlert } = useData();
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const updateAlert = async (id: string, action: 'seen' | 'snooze', href?: string) => {
+    setBusyId(id);
+    setError('');
+    try {
+      if (action === 'seen') await markAlertSeen(id);
+      else await snoozeAlert(id);
+      if (action === 'snooze') toast('Alerta adiado e sincronizado.');
+      if (href) navigate(href);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o alerta.');
+    } finally {
+      setBusyId(null);
+    }
+  };
   const alerts = data.alerts
     .filter((item) => !item.resolved && !item.hidden)
     .sort(
@@ -25,6 +44,7 @@ export function AlertsPage() {
       />
       {alerts.length ? (
         <div className="alert-list">
+          {error && <p className="field-error">{error}</p>}
           {alerts.map((alert) => (
             <Card
               className={`alert-card ${alert.priority} ${alert.seen ? 'seen' : ''}`}
@@ -77,7 +97,11 @@ export function AlertsPage() {
               </div>
               <div className="alert-actions">
                 {!alert.seen && (
-                  <Button variant="ghost" onClick={() => markAlertSeen(alert.id)}>
+                  <Button
+                    variant="ghost"
+                    disabled={busyId === alert.id}
+                    onClick={() => void updateAlert(alert.id, 'seen')}
+                  >
                     <Eye />
                     Marcar visto
                   </Button>
@@ -85,10 +109,8 @@ export function AlertsPage() {
                 {alert.canSnooze && !alert.snoozedUntilDate && (
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      snoozeAlert(alert.id);
-                      toast('Alerta adiado por 7 dias.');
-                    }}
+                    disabled={busyId === alert.id}
+                    onClick={() => void updateAlert(alert.id, 'snooze')}
                   >
                     <MoonStar />
                     Adiar
@@ -97,7 +119,11 @@ export function AlertsPage() {
                 <Link
                   className="button primary"
                   to={alert.href}
-                  onClick={() => markAlertSeen(alert.id)}
+                  aria-disabled={busyId === alert.id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (busyId !== alert.id) void updateAlert(alert.id, 'seen', alert.href);
+                  }}
                 >
                   Abrir item
                 </Link>

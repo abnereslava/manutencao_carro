@@ -16,8 +16,26 @@ export function SettingsPage() {
   const [km, setKm] = useState(String(data.settings.alertKmThreshold));
   const [days, setDays] = useState(String(data.settings.alertDaysThreshold));
   const [confirmClear, setConfirmClear] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const trusted = localStorage.getItem('carango-trusted-device') === 'yes';
   const changeTheme = (value: ThemePreference) => setPreference(value);
+  const saveSettings = async () => {
+    setSaving(true);
+    setSaveError('');
+    try {
+      await updateSettings({
+        ...data.settings,
+        alertKmThreshold: Number(km),
+        alertDaysThreshold: Number(days)
+      });
+      toast('Preferências de alerta sincronizadas.');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <>
       <PageHeader
@@ -78,17 +96,9 @@ export function SettingsPage() {
                 onChange={(e) => setDays(e.target.value)}
               />
             </div>
-            <Button
-              onClick={() => {
-                updateSettings({
-                  ...data.settings,
-                  alertKmThreshold: Number(km),
-                  alertDaysThreshold: Number(days)
-                });
-                toast('Preferências de alerta salvas.');
-              }}
-            >
-              Salvar preferências
+            {saveError && <p className="field-error">{saveError}</p>}
+            <Button disabled={saving} onClick={() => void saveSettings()}>
+              {saving ? 'Salvando…' : 'Salvar preferências'}
             </Button>
           </Card>
         </section>

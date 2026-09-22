@@ -15,11 +15,36 @@ export function VehiclePage() {
   const [odoOpen, setOdoOpen] = useState(false);
   const [draft, setDraft] = useState<Vehicle>(data.vehicle);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const save = (event: React.FormEvent) => {
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [operationError, setOperationError] = useState('');
+  const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    saveVehicle(draft);
-    toast('Dados do veículo atualizados.');
-    setEditing(false);
+    setSaving(true);
+    setOperationError('');
+    try {
+      await saveVehicle(draft);
+      toast('Dados do veículo sincronizados.');
+      setEditing(false);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Não foi possível salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    setOperationError('');
+    try {
+      await removeOdometer(deleteId);
+      setDeleteId(null);
+      toast('Leitura excluída e sincronizada.');
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Não foi possível excluir.');
+    } finally {
+      setDeleting(false);
+    }
   };
   return (
     <>
@@ -105,7 +130,7 @@ export function VehiclePage() {
             </Button>
           </div>
           <Card className="odometer-history">
-            {data.odometer
+            {[...data.odometer]
               .sort((a, b) => b.recordedDate.localeCompare(a.recordedDate))
               .map((record, index) => (
                 <div className="odometer-row" key={record.id}>
@@ -201,28 +226,30 @@ export function VehiclePage() {
             />
           </div>
           <div className="form-actions">
-            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+            {operationError && <p className="field-error">{operationError}</p>}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
               Cancelar
             </Button>
-            <Button type="submit">Salvar alterações</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar alterações'}
+            </Button>
           </div>
         </form>
       </Modal>
       <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="Excluir leitura">
         <p>Ao excluir, a quilometragem atual e os estados dependentes serão recalculados.</p>
+        {operationError && <p className="field-error">{operationError}</p>}
         <div className="form-actions">
-          <Button variant="ghost" onClick={() => setDeleteId(null)}>
+          <Button variant="ghost" disabled={deleting} onClick={() => setDeleteId(null)}>
             Cancelar
           </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              if (deleteId) removeOdometer(deleteId);
-              setDeleteId(null);
-              toast('Leitura excluída e dependências recalculadas.');
-            }}
-          >
-            Excluir leitura
+          <Button variant="danger" disabled={deleting} onClick={() => void confirmDelete()}>
+            {deleting ? 'Excluindo…' : 'Excluir leitura'}
           </Button>
         </div>
       </Modal>

@@ -77,6 +77,8 @@ export function NewMaintenancePage() {
   const { value, setValue, status, clear } = useDraft(draftKey, requestedInitial);
   const [titleError, setTitleError] = useState('');
   const [cycleError, setCycleError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const field = (key: keyof MaintenanceDraft) => ({
     value: value[key],
@@ -110,10 +112,11 @@ export function NewMaintenancePage() {
     calculatedCycle.nextDueKm !== undefined ? String(calculatedCycle.nextDueKm) : '';
   const calculatedNextDueDate = calculatedCycle.nextDueDate ?? '';
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setTitleError('');
     setCycleError('');
+    setSubmitError('');
 
     if (!value.title.trim()) {
       setTitleError('Dê um nome para a manutenção.');
@@ -135,34 +138,41 @@ export function NewMaintenancePage() {
       return;
     }
 
-    const planId = saveMaintenance({
-      title: value.title,
-      type: value.type,
-      priority: value.priority,
-      initialStatus: value.initialStatus,
-      recurrenceType: value.recurrenceType,
-      componentDefinitionId: value.componentDefinitionId || undefined,
-      initialPerformedKm: isRecurring ? Number(value.initialPerformedKm) : undefined,
-      initialPerformedDate: isRecurring ? value.initialPerformedDate : undefined,
-      intervalKm: usesKm ? Number(value.intervalKm) : undefined,
-      intervalMonths: usesTime ? Number(value.intervalMonths) : undefined,
-      nextDueKm: isRecurring
-        ? calculatedCycle.nextDueKm
-        : value.nextDueKm
-          ? Number(value.nextDueKm)
-          : undefined,
-      nextDueDate: isRecurring ? calculatedCycle.nextDueDate : value.nextDueDate || undefined,
-      description: value.description,
-      observations: value.observations
-    });
+    setSubmitting(true);
+    try {
+      const planId = await saveMaintenance({
+        title: value.title,
+        type: value.type,
+        priority: value.priority,
+        initialStatus: value.initialStatus,
+        recurrenceType: value.recurrenceType,
+        componentDefinitionId: value.componentDefinitionId || undefined,
+        initialPerformedKm: isRecurring ? Number(value.initialPerformedKm) : undefined,
+        initialPerformedDate: isRecurring ? value.initialPerformedDate : undefined,
+        intervalKm: usesKm ? Number(value.intervalKm) : undefined,
+        intervalMonths: usesTime ? Number(value.intervalMonths) : undefined,
+        nextDueKm: isRecurring
+          ? calculatedCycle.nextDueKm
+          : value.nextDueKm
+            ? Number(value.nextDueKm)
+            : undefined,
+        nextDueDate: isRecurring ? calculatedCycle.nextDueDate : value.nextDueDate || undefined,
+        description: value.description,
+        observations: value.observations
+      });
 
-    clear();
-    toast('Plano de manutenção criado.');
-    navigate(
-      requestedComponent && requestedAction
-        ? `/maintenance/${planId}/complete?component=${requestedComponent.id}&action=${requestedAction}`
-        : '/maintenance'
-    );
+      clear();
+      toast('Plano de manutenção sincronizado.');
+      navigate(
+        requestedComponent && requestedAction
+          ? `/maintenance/${planId}/complete?component=${requestedComponent.id}&action=${requestedAction}`
+          : '/maintenance'
+      );
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Não foi possível criar o plano.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -331,12 +341,18 @@ export function NewMaintenancePage() {
                   ? 'Rascunho salvo'
                   : ''}
             </span>
-            <Button type="button" variant="ghost" onClick={() => navigate(-1)}>
+            {submitError && <span className="field-error">{submitError}</span>}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={submitting}
+              onClick={() => navigate(-1)}
+            >
               Cancelar
             </Button>
-            <Button type="submit">
+            <Button type="submit" disabled={submitting}>
               <Save />
-              Criar manutenção
+              {submitting ? 'Salvando…' : 'Criar manutenção'}
             </Button>
           </footer>
         </Card>

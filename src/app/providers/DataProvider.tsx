@@ -1,7 +1,6 @@
-import { doc, getDoc, setDoc, type Firestore } from 'firebase/firestore';
+import { doc, getDoc, setDoc, waitForPendingWrites, type Firestore } from 'firebase/firestore';
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -15,9 +14,12 @@ import { getInitializedDataStore } from '../../data/firebase/config';
 import {
   createRepositories,
   saveComponentStateChange,
+  saveDocumentChange,
   saveIssueChange,
+  saveMaintenanceCreation,
   saveMaintenancePlanStateChange,
   saveMaintenanceCompletion,
+  saveOdometerChange,
   saveWarrantyChange
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
@@ -29,6 +31,8 @@ import { todayISO, uid } from '../../lib/format';
 import {
   SCHEMA_VERSION,
   type AppData,
+  type AuditMetadata,
+  type ComponentState,
   type DocumentRecord,
   type Issue,
   type MaintenanceCompletionInput,
@@ -44,9 +48,11 @@ import { useAuth } from './AuthProvider';
 
 interface DataContextValue {
   data: AppData;
-  addOdometer: (value: number, date: string, notes: string) => string | null;
-  removeOdometer: (id: string) => void;
-  saveVehicle: (vehicle: Vehicle) => void;
+  syncState: SyncState;
+  conflicts: DataConflict[];
+  addOdometer: (value: number, date: string, notes: string) => Promise<string | null>;
+  removeOdometer: (id: string) => Promise<void>;
+  saveVehicle: (vehicle: Vehicle) => Promise<void>;
   saveMaintenance: (
     input: Pick<
       MaintenancePlan,
@@ -66,7 +72,7 @@ interface DataContextValue {
       initialPerformedKm?: number;
       initialStatus?: 'pending' | 'scheduled';
     }
-  ) => string;
+  ) => Promise<string>;
   completeMaintenance: (id: string, input: MaintenanceCompletionInput) => Promise<void>;
   updatePart: (
     id: string,
@@ -124,16 +130,87 @@ interface DataContextValue {
   ) => Promise<string>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
-  ) => void;
-  markAlertSeen: (id: string) => void;
-  snoozeAlert: (id: string) => void;
-  updateSettings: (settings: AppData['settings']) => void;
+  ) => Promise<void>;
+  markAlertSeen: (id: string) => Promise<void>;
+  snoozeAlert: (id: string) => Promise<void>;
+  updateSettings: (settings: AppData['settings']) => Promise<void>;
+  resolveConflict: (
+    id: string,
+    choice: 'local' | 'remote' | 'manual',
+    manualValue?: ConflictValue
+  ) => Promise<void>;
   resetDemo: () => void;
+}
+
+export type SyncStatus = 'idle' | 'saving' | 'synced' | 'pending' | 'error';
+
+export interface SyncState {
+  status: SyncStatus;
+  pendingCount: number;
+  message?: string;
+  updatedAt?: string;
+}
+
+export type ConflictEntity =
+  | 'vehicle'
+  | 'odometer'
+  | 'componentState'
+  | 'part'
+  | 'maintenancePlan'
+  | 'issue'
+  | 'warranty'
+  | 'document';
+
+export type ConflictValue =
+  | Vehicle
+  | OdometerRecord
+  | ComponentState
+  | PartInstance
+  | MaintenancePlan
+  | Issue
+  | Warranty
+  | DocumentRecord;
+
+export interface DataConflict {
+  id: string;
+  entityType: ConflictEntity;
+  entityId: string;
+  local: ConflictValue;
+  remote: ConflictValue;
+  divergentFields: string[];
+  detectedAt: string;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
 const storageKey = 'carango-demo-data-v1';
+const conflictStorageKey = 'carango-sync-conflicts-v1';
 type Repositories = ReturnType<typeof createRepositories>;
+
+function restoreConflicts(): DataConflict[] {
+  try {
+    const value = sessionStorage.getItem(conflictStorageKey);
+    return value ? (JSON.parse(value) as DataConflict[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function divergentFields(local: ConflictValue, remote: ConflictValue) {
+  const ignored = new Set([
+    'schemaVersion',
+    'createdAt',
+    'createdBy',
+    'updatedAt',
+    'updatedBy',
+    'revision'
+  ]);
+  return [...new Set([...Object.keys(local), ...Object.keys(remote)])].filter(
+    (key) =>
+      !ignored.has(key) &&
+      JSON.stringify((local as unknown as Record<string, unknown>)[key]) !==
+        JSON.stringify((remote as unknown as Record<string, unknown>)[key])
+  );
+}
 
 function restoreDemo(): AppData {
   try {
@@ -172,8 +249,40 @@ export function DataProvider({ children }: { children: ReactNode }) {
     user?.demo ? restoreDemo() : emptyProductionData()
   );
   const [loading, setLoading] = useState(Boolean(user && !user.demo));
+  const [syncState, setSyncState] = useState<SyncState>({ status: 'idle', pendingCount: 0 });
+  const [conflicts, setConflicts] = useState<DataConflict[]>(restoreConflicts);
   const repositories = useRef<Repositories | null>(null);
   const database = useRef<Firestore | null>(null);
+  const mutationLocks = useRef(new Set<string>());
+
+  useEffect(() => {
+    sessionStorage.setItem(conflictStorageKey, JSON.stringify(conflicts));
+  }, [conflicts]);
+
+  useEffect(() => {
+    const markPending = () => {
+      if (mutationLocks.current.size)
+        setSyncState((current) => ({
+          ...current,
+          status: 'pending',
+          message: 'Sem conexão. Alterações aguardando confirmação do servidor.'
+        }));
+    };
+    const markSaving = () => {
+      if (mutationLocks.current.size)
+        setSyncState((current) => ({
+          ...current,
+          status: 'saving',
+          message: 'Conexão restaurada. Confirmando alterações…'
+        }));
+    };
+    addEventListener('offline', markPending);
+    addEventListener('online', markSaving);
+    return () => {
+      removeEventListener('offline', markPending);
+      removeEventListener('online', markSaving);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user || user.demo) {
@@ -235,7 +344,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
                 revision: 1
               }));
           if (!componentStates.items.length)
-            initialStates.forEach((state) => void repos.componentStates.save(state));
+            await Promise.all(initialStates.map((state) => repos.componentStates.save(state)));
           const next: AppData = {
             ...fallback,
             vehicle: resolvedVehicle,
@@ -266,16 +375,92 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
   }, [user]);
 
-  const persist = useCallback(
-    (updater: (current: AppData) => AppData) => {
-      setDataState((current) => {
-        const next = updater(current);
-        if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
-        return next;
+  const runMutation = async <T,>(key: string, action: () => Promise<T>): Promise<T> => {
+    if (mutationLocks.current.has(key))
+      throw new Error('Esta operação já está em andamento. Aguarde a confirmação.');
+    mutationLocks.current.add(key);
+    setSyncState({
+      status: navigator.onLine ? 'saving' : 'pending',
+      pendingCount: mutationLocks.current.size,
+      message: navigator.onLine
+        ? 'Salvando alterações…'
+        : 'Sem conexão. Alterações aguardando confirmação do servidor.'
+    });
+    try {
+      const result = await action();
+      if (database.current) await waitForPendingWrites(database.current);
+      const remaining = Math.max(0, mutationLocks.current.size - 1);
+      setSyncState({
+        status: remaining ? (navigator.onLine ? 'saving' : 'pending') : 'synced',
+        pendingCount: remaining,
+        message: remaining ? 'Ainda há alterações sendo salvas…' : 'Alterações sincronizadas.',
+        updatedAt: new Date().toISOString()
       });
-    },
-    [user?.demo]
-  );
+      return result;
+    } catch (error) {
+      setSyncState({
+        status: 'error',
+        pendingCount: Math.max(0, mutationLocks.current.size - 1),
+        message: error instanceof Error ? error.message : 'Não foi possível salvar as alterações.'
+      });
+      throw error;
+    } finally {
+      mutationLocks.current.delete(key);
+    }
+  };
+
+  const getRemoteEntity = async (
+    entityType: ConflictEntity,
+    id: string
+  ): Promise<ConflictValue | null> => {
+    const repos = repositories.current;
+    if (!repos) return null;
+    switch (entityType) {
+      case 'vehicle':
+        return repos.vehicles.get(id);
+      case 'odometer':
+        return repos.odometer.get(id);
+      case 'componentState':
+        return repos.componentStates.get(id);
+      case 'part':
+        return repos.parts.get(id);
+      case 'maintenancePlan':
+        return repos.maintenancePlans.get(id);
+      case 'issue':
+        return repos.issues.get(id);
+      case 'warranty':
+        return repos.warranties.get(id);
+      case 'document':
+        return repos.documents.get(id);
+    }
+  };
+
+  const ensureNoConflict = async (
+    entityType: ConflictEntity,
+    base: ConflictValue,
+    local: ConflictValue
+  ) => {
+    if (user?.demo || !repositories.current) return;
+    const remote = await getRemoteEntity(entityType, base.id);
+    if (
+      !remote ||
+      (remote.revision === base.revision &&
+        remote.updatedAt === base.updatedAt &&
+        remote.updatedBy === base.updatedBy)
+    )
+      return;
+    const conflict: DataConflict = {
+      id: `${entityType}:${base.id}`,
+      entityType,
+      entityId: base.id,
+      local,
+      remote,
+      divergentFields: divergentFields(local, remote),
+      detectedAt: new Date().toISOString()
+    };
+    setConflicts((current) => [conflict, ...current.filter((item) => item.id !== conflict.id)]);
+    throw new Error('Conflito detectado. Escolha qual versão deve ser mantida.');
+  };
   const audit = () => ({
     schemaVersion: SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
@@ -301,99 +486,204 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return { ...next, alerts: mergeAlertState(deriveAlerts(next), current.alerts) };
   };
 
-  const addOdometer = (value: number, date: string, notes: string) => {
+  const addOdometer: DataContextValue['addOdometer'] = async (value, date, notes) => {
     const error = validateOdometerReading(data.odometer, value);
     if (error) return error;
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para salvar a quilometragem.');
+    const current = data;
     const record: OdometerRecord = {
       ...audit(),
       id: uid('odo'),
-      vehicleId: data.vehicle.id,
+      vehicleId: current.vehicle.id,
       odometerKm: value,
       recordedDate: date,
       observations: notes
     };
-    persist((current) => {
-      const next = recalculate(
-        { ...current, odometer: [record, ...current.odometer] },
-        getCurrentOdometer([record, ...current.odometer])
-      );
-      void repositories.current?.odometer.save(record);
-      void repositories.current?.vehicles.save(next.vehicle);
-      next.maintenancePlans.forEach(
-        (plan) => void repositories.current?.maintenancePlans.save(plan)
-      );
-      return next;
+    const recalculated = recalculate(
+      { ...current, odometer: [record, ...current.odometer] },
+      getCurrentOdometer([record, ...current.odometer])
+    );
+    const now = new Date().toISOString();
+    const plans = recalculated.maintenancePlans.map((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.status === plan.status
+        ? plan
+        : {
+            ...plan,
+            revision: plan.revision + 1,
+            updatedAt: now,
+            updatedBy: user?.email ?? 'local'
+          };
     });
+    const next = {
+      ...recalculated,
+      maintenancePlans: plans,
+      vehicle: {
+        ...recalculated.vehicle,
+        revision: current.vehicle.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }
+    };
+    const changedPlans = next.maintenancePlans.filter((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.revision !== plan.revision;
+    });
+    await runMutation('odometer:add', async () => {
+      await ensureNoConflict('vehicle', current.vehicle, next.vehicle);
+      await Promise.all(
+        changedPlans.map(async (plan) => {
+          const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+          if (previous) await ensureNoConflict('maintenancePlan', previous, plan);
+        })
+      );
+      if (database.current)
+        await saveOdometerChange(database.current, {
+          record,
+          vehicle: next.vehicle,
+          plans: changedPlans,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
     return null;
   };
-  const removeOdometer = (id: string) =>
-    persist((current) => {
-      const list = current.odometer.filter((item) => item.id !== id);
-      const next = recalculate({ ...current, odometer: list }, getCurrentOdometer(list));
-      void repositories.current?.odometer.remove(id);
-      void repositories.current?.vehicles.save(next.vehicle);
-      return next;
+  const removeOdometer: DataContextValue['removeOdometer'] = async (id) => {
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para excluir a quilometragem.');
+    const current = data;
+    const list = current.odometer.filter((item) => item.id !== id);
+    if (list.length === current.odometer.length) throw new Error('Leitura não encontrada.');
+    const recalculated = recalculate({ ...current, odometer: list }, getCurrentOdometer(list));
+    const now = new Date().toISOString();
+    const plans = recalculated.maintenancePlans.map((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.status === plan.status
+        ? plan
+        : {
+            ...plan,
+            revision: plan.revision + 1,
+            updatedAt: now,
+            updatedBy: user?.email ?? 'local'
+          };
     });
-  const saveVehicle = (vehicle: Vehicle) =>
-    persist((current) => {
-      const nextVehicle = {
-        ...vehicle,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user?.email ?? 'local',
-        revision: vehicle.revision + 1
-      };
-      void repositories.current?.vehicles.save(nextVehicle);
-      return { ...current, vehicle: nextVehicle };
+    const next = {
+      ...recalculated,
+      maintenancePlans: plans,
+      vehicle: {
+        ...recalculated.vehicle,
+        revision: current.vehicle.revision + 1,
+        updatedAt: now,
+        updatedBy: user?.email ?? 'local'
+      }
+    };
+    const changedPlans = next.maintenancePlans.filter((plan) => {
+      const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+      return previous?.revision !== plan.revision;
     });
-  const saveMaintenance: DataContextValue['saveMaintenance'] = (input) => {
+    await runMutation(`odometer:remove:${id}`, async () => {
+      await ensureNoConflict('vehicle', current.vehicle, next.vehicle);
+      await Promise.all(
+        changedPlans.map(async (plan) => {
+          const previous = current.maintenancePlans.find((item) => item.id === plan.id);
+          if (previous) await ensureNoConflict('maintenancePlan', previous, plan);
+        })
+      );
+      if (database.current)
+        await saveOdometerChange(database.current, {
+          removedRecordId: id,
+          vehicle: next.vehicle,
+          plans: changedPlans,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const saveVehicle: DataContextValue['saveVehicle'] = async (vehicle) => {
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para editar o veículo.');
+    const current = data;
+    const nextVehicle = {
+      ...vehicle,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local',
+      revision: current.vehicle.revision + 1
+    };
+    await runMutation(`vehicle:${vehicle.id}`, async () => {
+      await ensureNoConflict('vehicle', current.vehicle, nextVehicle);
+      if (repositories.current) await repositories.current.vehicles.save(nextVehicle);
+    });
+    const next = { ...current, vehicle: nextVehicle };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const saveMaintenance: DataContextValue['saveMaintenance'] = async (input) => {
     const planId = uid('maint');
-    persist((current) => {
-      const { initialPerformedDate, initialPerformedKm, initialStatus, ...planInput } = input;
-      const plan = {
-        ...audit(),
-        id: planId,
-        status:
-          initialStatus === 'pending' ||
-          (initialStatus === undefined &&
-            planInput.recurrenceType === 'none' &&
-            planInput.nextDueKm === undefined &&
-            planInput.nextDueDate === undefined)
-            ? 'pending'
-            : 'ok',
-        isActive: true,
-        ...planInput
-      } as MaintenancePlan;
-      plan.status = calculateMaintenanceStatus(plan, {
-        currentKm: current.vehicle.currentOdometer,
-        today: todayISO(),
-        alertKmThreshold: current.settings.alertKmThreshold,
-        alertDaysThreshold: current.settings.alertDaysThreshold
-      });
-
-      const occurrence =
-        initialPerformedDate && initialPerformedKm !== undefined
-          ? ({
-              ...audit(),
-              id: uid('occ'),
-              maintenancePlanId: plan.id,
-              performedDate: initialPerformedDate,
-              odometerKm: initialPerformedKm,
-              status: 'completed',
-              observations: '',
-              partActions: []
-            } as MaintenanceOccurrence)
-          : undefined;
-
-      void repositories.current?.maintenancePlans.save(plan);
-      if (occurrence) void repositories.current?.maintenanceOccurrences.save(occurrence);
-
-      const base = {
-        ...current,
-        maintenancePlans: [plan, ...current.maintenancePlans],
-        occurrences: occurrence ? [occurrence, ...current.occurrences] : current.occurrences
-      };
-      return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para criar a manutenção.');
+    const current = data;
+    const { initialPerformedDate, initialPerformedKm, initialStatus, ...planInput } = input;
+    const plan = {
+      ...audit(),
+      id: planId,
+      status:
+        initialStatus === 'pending' ||
+        (initialStatus === undefined &&
+          planInput.recurrenceType === 'none' &&
+          planInput.nextDueKm === undefined &&
+          planInput.nextDueDate === undefined)
+          ? 'pending'
+          : 'ok',
+      isActive: true,
+      ...planInput
+    } as MaintenancePlan;
+    plan.status = calculateMaintenanceStatus(plan, {
+      currentKm: current.vehicle.currentOdometer,
+      today: todayISO(),
+      alertKmThreshold: current.settings.alertKmThreshold,
+      alertDaysThreshold: current.settings.alertDaysThreshold
     });
+    const occurrence =
+      initialPerformedDate && initialPerformedKm !== undefined
+        ? ({
+            ...audit(),
+            id: uid('occ'),
+            maintenancePlanId: plan.id,
+            performedDate: initialPerformedDate,
+            odometerKm: initialPerformedKm,
+            status: 'completed',
+            observations: '',
+            partActions: []
+          } as MaintenanceOccurrence)
+        : undefined;
+    const base = {
+      ...current,
+      maintenancePlans: [plan, ...current.maintenancePlans],
+      occurrences: occurrence ? [occurrence, ...current.occurrences] : current.occurrences
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    await runMutation('maintenance:create', async () => {
+      if (database.current)
+        await saveMaintenanceCreation(database.current, {
+          plan,
+          occurrence,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
     return planId;
   };
   const completeMaintenance: DataContextValue['completeMaintenance'] = async (id, input) => {
@@ -632,20 +922,40 @@ export function DataProvider({ children }: { children: ReactNode }) {
       )
     };
     const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
-    if (database.current) {
-      await saveMaintenanceCompletion(database.current, {
-        occurrence,
-        plan: updatedPlan,
-        parts: [...changedParts.values()],
-        componentStates: [...changedStates.values()],
-        warranty,
-        issues: changedIssues,
-        alerts: next.alerts,
-        removedAlertIds: current.alerts
-          .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
-          .map((alert) => alert.id)
-      });
-    }
+    await runMutation(`maintenance:complete:${id}`, async () => {
+      await ensureNoConflict('maintenancePlan', plan, updatedPlan);
+      await Promise.all(
+        [...changedParts.values()].map(async (changed) => {
+          const original = current.parts.find((item) => item.id === changed.id);
+          if (original) await ensureNoConflict('part', original, changed);
+        })
+      );
+      await Promise.all(
+        [...changedStates.values()].map(async (changed) => {
+          const original = current.componentStates.find((item) => item.id === changed.id);
+          if (original) await ensureNoConflict('componentState', original, changed);
+        })
+      );
+      await Promise.all(
+        resolvedIssues.map(async (changed) => {
+          const original = current.issues.find((item) => item.id === changed.id);
+          if (original) await ensureNoConflict('issue', original, changed);
+        })
+      );
+      if (database.current)
+        await saveMaintenanceCompletion(database.current, {
+          occurrence,
+          plan: updatedPlan,
+          parts: [...changedParts.values()],
+          componentStates: [...changedStates.values()],
+          warranty,
+          issues: changedIssues,
+          alerts: next.alerts,
+          removedAlertIds: current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        });
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
@@ -673,7 +983,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!updated.name) throw new Error('Informe o nome da peça.');
     if (updated.purchasePriceCents !== undefined && updated.purchasePriceCents < 0)
       throw new Error('O preço da peça não pode ser negativo.');
-    if (repositories.current) await repositories.current.parts.save(updated);
+    await runMutation(`part:${id}`, async () => {
+      await ensureNoConflict('part', part, updated);
+      if (repositories.current) await repositories.current.parts.save(updated);
+    });
     const next = {
       ...current,
       parts: current.parts.map((item) => (item.id === id ? updated : item))
@@ -716,8 +1029,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const removedAlertIds = current.alerts
       .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
       .map((alert) => alert.id);
-    if (database.current)
-      await saveComponentStateChange(database.current, updatedState, next.alerts, removedAlertIds);
+    await runMutation(`component:${state.id}`, async () => {
+      await ensureNoConflict('componentState', state, updatedState);
+      if (database.current)
+        await saveComponentStateChange(
+          database.current,
+          updatedState,
+          next.alerts,
+          removedAlertIds
+        );
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
@@ -762,8 +1083,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const removedAlertIds = current.alerts
       .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
       .map((alert) => alert.id);
-    if (database.current)
-      await saveIssueChange(database.current, issue, next.alerts, removedAlertIds);
+    await runMutation(`issue:${issue.id}`, async () => {
+      if (existing) await ensureNoConflict('issue', existing, issue);
+      if (database.current)
+        await saveIssueChange(database.current, issue, next.alerts, removedAlertIds);
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
     return issue.id;
@@ -790,8 +1114,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const removedAlertIds = current.alerts
       .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
       .map((alert) => alert.id);
-    if (database.current)
-      await saveIssueChange(database.current, updated, next.alerts, removedAlertIds);
+    await runMutation(`issue:${id}`, async () => {
+      await ensureNoConflict('issue', issue, updated);
+      if (database.current)
+        await saveIssueChange(database.current, updated, next.alerts, removedAlertIds);
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
@@ -816,8 +1143,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const removedAlertIds = current.alerts
       .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
       .map((alert) => alert.id);
-    if (database.current)
-      await saveMaintenancePlanStateChange(database.current, updated, next.alerts, removedAlertIds);
+    await runMutation(`maintenance:${id}`, async () => {
+      await ensureNoConflict('maintenancePlan', plan, updated);
+      if (database.current)
+        await saveMaintenancePlanStateChange(
+          database.current,
+          updated,
+          next.alerts,
+          removedAlertIds
+        );
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
@@ -871,53 +1206,212 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const removedAlertIds = current.alerts
       .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
       .map((alert) => alert.id);
-    if (database.current)
-      await saveWarrantyChange(database.current, warranty, next.alerts, removedAlertIds);
+    await runMutation(`warranty:${warranty.id}`, async () => {
+      if (existing) await ensureNoConflict('warranty', existing, warranty);
+      if (database.current)
+        await saveWarrantyChange(database.current, warranty, next.alerts, removedAlertIds);
+    });
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
     return warranty.id;
   };
-  const addDocument: DataContextValue['addDocument'] = (input) =>
-    persist((current) => {
-      const document = {
-        ...audit(),
-        id: uid('doc'),
-        status: 'pending',
-        observations: '',
-        ...input
-      } as DocumentRecord;
-      void repositories.current?.documents.save(document);
-      const base = { ...current, documents: [document, ...current.documents] };
-      return { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+  const addDocument: DataContextValue['addDocument'] = async (input) => {
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para salvar o documento.');
+    const current = data;
+    const document = {
+      ...audit(),
+      id: uid('doc'),
+      status: 'pending',
+      observations: '',
+      ...input
+    } as DocumentRecord;
+    const base = { ...current, documents: [document, ...current.documents] };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    await runMutation('document:add', async () => {
+      if (database.current)
+        await saveDocumentChange(
+          database.current,
+          document,
+          next.alerts,
+          current.alerts
+            .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+            .map((alert) => alert.id)
+        );
     });
-  const markAlertSeen = (id: string) =>
-    persist((current) => {
-      const alerts = current.alerts.map((item) =>
-        item.id === id ? { ...item, seen: true } : item
-      );
-      const alert = alerts.find((item) => item.id === id);
-      if (alert) void repositories.current?.alerts.save(alert);
-      return { ...current, alerts };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const markAlertSeen: DataContextValue['markAlertSeen'] = async (id) => {
+    const current = data;
+    const alerts = current.alerts.map((item) => (item.id === id ? { ...item, seen: true } : item));
+    const alert = alerts.find((item) => item.id === id);
+    if (!alert) throw new Error('Alerta não encontrado.');
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para atualizar o alerta.');
+    await runMutation(`alert:${id}`, async () => {
+      if (repositories.current) await repositories.current.alerts.save(alert);
     });
-  const snoozeAlert = (id: string) =>
-    persist((current) => {
-      const alerts = current.alerts.map((item) =>
-        item.id === id && item.canSnooze
-          ? {
-              ...item,
-              snoozedUntilDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
-            }
-          : item
-      );
-      const alert = alerts.find((item) => item.id === id);
-      if (alert) void repositories.current?.alerts.save(alert);
-      return { ...current, alerts };
+    const next = { ...current, alerts };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const snoozeAlert: DataContextValue['snoozeAlert'] = async (id) => {
+    const current = data;
+    const alerts = current.alerts.map((item) =>
+      item.id === id && item.canSnooze
+        ? {
+            ...item,
+            snoozedUntilDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+          }
+        : item
+    );
+    const alert = alerts.find((item) => item.id === id);
+    if (!alert) throw new Error('Alerta não encontrado.');
+    if (!user?.demo && !repositories.current)
+      throw new Error('O Firestore não está disponível para adiar o alerta.');
+    await runMutation(`alert:${id}`, async () => {
+      if (repositories.current) await repositories.current.alerts.save(alert);
     });
-  const updateSettings = (settings: AppData['settings']) =>
-    persist((current) => {
-      if (database.current) void setDoc(doc(database.current, 'appSettings/default'), settings);
-      return recalculate({ ...current, settings }, current.vehicle.currentOdometer);
+    const next = { ...current, alerts };
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const updateSettings: DataContextValue['updateSettings'] = async (settings) => {
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para salvar as configurações.');
+    const current = data;
+    const next = recalculate({ ...current, settings }, current.vehicle.currentOdometer);
+    await runMutation('settings:default', async () => {
+      if (database.current) await setDoc(doc(database.current, 'appSettings/default'), settings);
     });
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+
+  const replaceConflictEntity = (
+    current: AppData,
+    entityType: ConflictEntity,
+    value: ConflictValue
+  ): AppData => {
+    let next = current;
+    switch (entityType) {
+      case 'vehicle':
+        next = { ...current, vehicle: value as Vehicle };
+        break;
+      case 'odometer': {
+        const record = value as OdometerRecord;
+        const odometer = current.odometer.some((item) => item.id === record.id)
+          ? current.odometer.map((item) => (item.id === record.id ? record : item))
+          : [record, ...current.odometer];
+        next = recalculate({ ...current, odometer }, getCurrentOdometer(odometer));
+        break;
+      }
+      case 'componentState':
+        next = {
+          ...current,
+          componentStates: current.componentStates.map((item) =>
+            item.id === value.id ? (value as ComponentState) : item
+          )
+        };
+        break;
+      case 'part':
+        next = {
+          ...current,
+          parts: current.parts.map((item) =>
+            item.id === value.id ? (value as PartInstance) : item
+          )
+        };
+        break;
+      case 'maintenancePlan':
+        next = {
+          ...current,
+          maintenancePlans: current.maintenancePlans.map((item) =>
+            item.id === value.id ? (value as MaintenancePlan) : item
+          )
+        };
+        break;
+      case 'issue':
+        next = {
+          ...current,
+          issues: current.issues.map((item) => (item.id === value.id ? (value as Issue) : item))
+        };
+        break;
+      case 'warranty':
+        next = {
+          ...current,
+          warranties: current.warranties.map((item) =>
+            item.id === value.id ? (value as Warranty) : item
+          )
+        };
+        break;
+      case 'document':
+        next = {
+          ...current,
+          documents: current.documents.map((item) =>
+            item.id === value.id ? (value as DocumentRecord) : item
+          )
+        };
+        break;
+    }
+    return { ...next, alerts: mergeAlertState(deriveAlerts(next), current.alerts) };
+  };
+
+  const saveConflictEntity = async (entityType: ConflictEntity, value: ConflictValue) => {
+    const repos = repositories.current;
+    if (!repos) return;
+    switch (entityType) {
+      case 'vehicle':
+        await repos.vehicles.save(value as Vehicle);
+        break;
+      case 'odometer':
+        await repos.odometer.save(value as OdometerRecord);
+        break;
+      case 'componentState':
+        await repos.componentStates.save(value as ComponentState);
+        break;
+      case 'part':
+        await repos.parts.save(value as PartInstance);
+        break;
+      case 'maintenancePlan':
+        await repos.maintenancePlans.save(value as MaintenancePlan);
+        break;
+      case 'issue':
+        await repos.issues.save(value as Issue);
+        break;
+      case 'warranty':
+        await repos.warranties.save(value as Warranty);
+        break;
+      case 'document':
+        await repos.documents.save(value as DocumentRecord);
+        break;
+    }
+  };
+
+  const resolveConflict: DataContextValue['resolveConflict'] = async (id, choice, manualValue) => {
+    const conflict = conflicts.find((item) => item.id === id);
+    if (!conflict) throw new Error('Conflito não encontrado.');
+    let resolved =
+      choice === 'remote' ? conflict.remote : choice === 'local' ? conflict.local : manualValue;
+    if (!resolved) throw new Error('Informe a versão revisada manualmente.');
+    if (choice !== 'remote') {
+      const metadata = resolved as ConflictValue & AuditMetadata;
+      resolved = {
+        ...resolved,
+        id: conflict.entityId,
+        createdAt: conflict.remote.createdAt,
+        createdBy: conflict.remote.createdBy,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user?.email ?? 'local',
+        revision: Math.max(metadata.revision ?? 0, conflict.remote.revision) + 1
+      } as ConflictValue;
+      await runMutation(`conflict:${id}`, async () => {
+        await saveConflictEntity(conflict.entityType, resolved as ConflictValue);
+      });
+    }
+    setDataState((current) => replaceConflictEntity(current, conflict.entityType, resolved));
+    setConflicts((current) => current.filter((item) => item.id !== id));
+  };
   const resetDemo = () => {
     localStorage.removeItem(storageKey);
     setDataState(structuredClone(seedData));
@@ -925,6 +1419,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       data,
+      syncState,
+      conflicts,
       addOdometer,
       removeOdometer,
       saveVehicle,
@@ -940,9 +1436,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       markAlertSeen,
       snoozeAlert,
       updateSettings,
+      resolveConflict,
       resetDemo
     }),
-    [data]
+    [data, syncState, conflicts]
   );
   if (loading)
     return (

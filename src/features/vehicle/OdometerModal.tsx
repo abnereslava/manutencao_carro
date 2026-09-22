@@ -11,17 +11,25 @@ export function OdometerModal({ open, onClose }: { open: boolean; onClose: () =>
   const [date, setDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
-  const save = (event: React.FormEvent) => {
+  const [saving, setSaving] = useState(false);
+  const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    const message = addOdometer(Number(km), date, notes);
-    if (message) {
-      setError(message);
-      return;
-    }
-    toast('Quilometragem atualizada.');
+    setSaving(true);
     setError('');
-    setNotes('');
-    onClose();
+    try {
+      const message = await addOdometer(Number(km), date, notes);
+      if (message) {
+        setError(message);
+        return;
+      }
+      toast('Quilometragem sincronizada.');
+      setNotes('');
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível salvar a leitura.');
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <Modal open={open} onClose={onClose} title="Atualizar quilometragem">
@@ -52,10 +60,12 @@ export function OdometerModal({ open, onClose }: { open: boolean; onClose: () =>
           />
         </div>
         <div className="form-actions">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit">Salvar leitura</Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Salvando…' : 'Salvar leitura'}
+          </Button>
         </div>
       </form>
     </Modal>

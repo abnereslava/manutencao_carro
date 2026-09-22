@@ -17,18 +17,30 @@ export function DocumentsPage() {
     dueDate: '',
     amount: ''
   });
-  const submit = (event: React.FormEvent) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    addDocument({
-      name: form.name,
-      type: form.type,
-      referenceYear: Number(form.referenceYear),
-      dueDate: form.dueDate || undefined,
-      amountCents: form.amount ? Math.round(Number(form.amount.replace(',', '.')) * 100) : undefined
-    });
-    toast('Documento salvo.');
-    setOpen(false);
-    setForm({ ...form, name: '', dueDate: '', amount: '' });
+    setSaving(true);
+    setError('');
+    try {
+      await addDocument({
+        name: form.name,
+        type: form.type,
+        referenceYear: Number(form.referenceYear),
+        dueDate: form.dueDate || undefined,
+        amountCents: form.amount
+          ? Math.round(Number(form.amount.replace(',', '.')) * 100)
+          : undefined
+      });
+      toast('Documento sincronizado.');
+      setOpen(false);
+      setForm({ ...form, name: '', dueDate: '', amount: '' });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível salvar o documento.');
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <>
@@ -153,11 +165,14 @@ export function DocumentsPage() {
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
           </div>
+          {error && <p className="field-error">{error}</p>}
           <div className="form-actions">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit">Salvar documento</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar documento'}
+            </Button>
           </div>
         </form>
       </Modal>

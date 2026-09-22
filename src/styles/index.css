@@ -172,15 +172,89 @@ button {
   display: flex;
   gap: 6px;
   align-items: center;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--color-status-ok);
   font-size: 12px;
   font-weight: 700;
+}
+.connection.error {
+  color: var(--color-status-danger);
+  cursor: pointer;
+}
+.connection b {
+  min-width: 17px;
+  padding: 2px 5px;
+  border-radius: 99px;
+  background: var(--color-status-danger);
+  color: white;
+  font-size: 9px;
 }
 .connection.offline {
   color: var(--color-status-warning);
 }
 .connection svg {
   width: 15px;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.conflict-panel {
+  display: grid;
+  gap: 18px;
+}
+.conflict-panel > p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+.conflict-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.conflict-meta span {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.conflict-table {
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+}
+.conflict-row {
+  min-width: 620px;
+  display: grid;
+  grid-template-columns: 0.6fr 1fr 1fr;
+  border-bottom: 1px solid var(--color-border);
+}
+.conflict-row:last-child {
+  border: 0;
+}
+.conflict-row > * {
+  min-width: 0;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  border-right: 1px solid var(--color-border);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.conflict-row > *:last-child {
+  border: 0;
+}
+.conflict-row.heading {
+  background: var(--color-surface-2);
+}
+.conflict-actions {
+  flex-wrap: wrap;
 }
 .alert-button {
   position: relative;
@@ -758,6 +832,11 @@ main {
     background-position: -200% 0;
   }
 }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -773,7 +852,7 @@ main {
     padding: 0 7px;
     font-size: 12px;
   }
-  .connection {
+  .connection span {
     display: none;
   }
 }

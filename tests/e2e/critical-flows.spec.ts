@@ -10,6 +10,7 @@ test('KM atualiza o veículo sem regressão', async ({ page }) => {
   await page.getByLabel('Nova leitura').fill('149000');
   await page.getByRole('button', { name: 'Salvar leitura' }).click();
   await expect(page.getByText('149.000', { exact: false }).first()).toBeVisible();
+  await expect(page.locator('.connection')).toContainText('Sincronizado');
 });
 
 test('conclusão recorrente gera histórico e próximo ciclo', async ({ page }) => {
