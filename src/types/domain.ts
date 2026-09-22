@@ -3,7 +3,8 @@ export const ACTIVE_VEHICLE_ID = 'sandero';
 
 export type ISODate = string;
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
-export type MaintenanceStatus = 'ok' | 'upcoming' | 'overdue' | 'in_progress' | 'archived';
+export type MaintenanceStatus =
+  'ok' | 'upcoming' | 'overdue' | 'pending' | 'in_progress' | 'archived';
 export type RecurrenceType = 'none' | 'km' | 'time' | 'km_or_time';
 export type ComponentStatus = 'installed' | 'missing' | 'unknown' | 'notApplicable';
 export type AlertPriority = 'info' | 'attention' | 'important' | 'critical';
@@ -129,6 +130,8 @@ export interface MaintenanceOccurrence extends AuditMetadata {
   observations: string;
   expense?: ExpenseBreakdown;
   partActions: PartAction[];
+  inspectionResult?: 'satisfactory' | 'attention' | 'problem';
+  inspectionObservations?: string;
 }
 
 export interface PartAction {
@@ -172,6 +175,12 @@ export interface MaintenanceCompletionInput {
   expense: ExpenseBreakdown;
   partActions: MaintenancePartActionInput[];
   warranty?: MaintenanceWarrantyInput;
+  inspection?: {
+    result: NonNullable<MaintenanceOccurrence['inspectionResult']>;
+    observations: string;
+    createIssue: boolean;
+  };
+  resolveIssueIds?: string[];
 }
 
 export interface Issue extends AuditMetadata {
@@ -179,6 +188,9 @@ export interface Issue extends AuditMetadata {
   title: string;
   description: string;
   componentDefinitionId?: string;
+  relatedPartInstanceIds?: string[];
+  relatedMaintenancePlanId?: string;
+  relatedMaintenanceOccurrenceId?: string;
   priority: Priority;
   status: 'identified' | 'pending' | 'in_progress' | 'postponed' | 'resolved' | 'ignored';
   identifiedDate: ISODate;

@@ -13,6 +13,7 @@ interface MaintenanceDraft {
   title: string;
   type: 'preventive_recurring' | 'preventive_one_time' | 'corrective' | 'inspection';
   priority: 'low' | 'medium' | 'high' | 'urgent';
+  initialStatus: 'pending' | 'scheduled';
   recurrenceType: 'none' | 'km' | 'time' | 'km_or_time';
   componentDefinitionId: string;
   initialPerformedKm: string;
@@ -29,6 +30,7 @@ const initial: MaintenanceDraft = {
   title: '',
   type: 'preventive_recurring',
   priority: 'medium',
+  initialStatus: 'scheduled',
   recurrenceType: 'km_or_time',
   componentDefinitionId: '',
   initialPerformedKm: '',
@@ -137,6 +139,7 @@ export function NewMaintenancePage() {
       title: value.title,
       type: value.type,
       priority: value.priority,
+      initialStatus: value.initialStatus,
       recurrenceType: value.recurrenceType,
       componentDefinitionId: value.componentDefinitionId || undefined,
       initialPerformedKm: isRecurring ? Number(value.initialPerformedKm) : undefined,
@@ -200,6 +203,10 @@ export function NewMaintenancePage() {
                 <option value="medium">Média</option>
                 <option value="high">Alta</option>
                 <option value="urgent">Urgente</option>
+              </Select>
+              <Select label="Estado inicial" {...field('initialStatus')}>
+                <option value="scheduled">Calcular pelos prazos</option>
+                <option value="pending">Pendente manual</option>
               </Select>
               <Select className="full" label="Componente" {...field('componentDefinitionId')}>
                 <option value="">Sem componente específico</option>

@@ -20,6 +20,7 @@ export function calculateMaintenanceStatus(
   input: MaintenanceStateInput
 ): MaintenanceStatus {
   if (!plan.isActive) return 'archived';
+  if (plan.status === 'pending') return 'pending';
   if (plan.status === 'in_progress') return 'in_progress';
   const kmRemaining = plan.nextDueKm === undefined ? Infinity : plan.nextDueKm - input.currentKm;
   const dayRemaining = plan.nextDueDate ? daysUntil(plan.nextDueDate, input.today) : Infinity;

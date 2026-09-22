@@ -23,7 +23,7 @@ export const maintenancePlanSchema = auditSchema
     title: z.string().min(2),
     type: z.enum(['preventive_recurring', 'preventive_one_time', 'corrective', 'inspection']),
     priority: z.enum(['low', 'medium', 'high', 'urgent']),
-    status: z.enum(['ok', 'upcoming', 'overdue', 'in_progress', 'archived']),
+    status: z.enum(['ok', 'upcoming', 'overdue', 'pending', 'in_progress', 'archived']),
     recurrenceType: z.enum(['none', 'km', 'time', 'km_or_time']),
     intervalKm: z.number().int().positive().optional(),
     intervalDays: z.number().int().positive().optional(),

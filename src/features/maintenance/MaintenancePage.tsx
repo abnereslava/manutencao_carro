@@ -10,15 +10,28 @@ import {
   Wrench
 } from 'lucide-react';
 import { useData } from '../../app/providers/DataProvider';
-import { getComponent } from '../../catalog/components/sandero';
+import { getComponent, SANDERO_COMPONENTS } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
-import { Badge, Button, Card, EmptyState, Tabs } from '../../components/ui';
-import { formatDate, formatKm } from '../../lib/format';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Modal,
+  Select,
+  Tabs,
+  Textarea
+} from '../../components/ui';
+import { useToast } from '../../components/ui/Toast';
+import { formatDate, formatKm, todayISO } from '../../lib/format';
+import type { Issue } from '../../types/domain';
 
 const labels = {
   overdue: 'Vencida',
   upcoming: 'Próxima',
   ok: 'Em dia',
+  pending: 'Pendente',
   in_progress: 'Em andamento',
   archived: 'Arquivada'
 } as const;
@@ -48,6 +61,7 @@ export function MaintenancePage() {
         if (!text.includes(query.toLocaleLowerCase('pt-BR'))) return false;
         if (tab === 'all') return true;
         if (tab === 'issues') return false;
+        if (tab === 'inspections') return item.type === 'inspection';
         if (tab === 'recurring') return item.recurrenceType !== 'none';
         return item.status === tab;
       }),
@@ -85,12 +99,19 @@ export function MaintenancePage() {
             { id: 'all', label: 'Visão geral', count: data.maintenancePlans.length },
             { id: 'overdue', label: 'Vencidas', count: counts('overdue') },
             { id: 'upcoming', label: 'Próximas', count: counts('upcoming') },
+            { id: 'pending', label: 'Pendentes', count: counts('pending') },
             { id: 'in_progress', label: 'Em andamento', count: counts('in_progress') },
+            {
+              id: 'inspections',
+              label: 'Inspeções',
+              count: data.maintenancePlans.filter((item) => item.type === 'inspection').length
+            },
             { id: 'recurring', label: 'Recorrentes' },
             {
               id: 'issues',
               label: 'Problemas',
-              count: data.issues.filter((item) => item.status !== 'resolved').length
+              count: data.issues.filter((item) => !['resolved', 'ignored'].includes(item.status))
+                .length
             }
           ]}
         />
@@ -153,38 +174,392 @@ export function MaintenancePage() {
   );
 }
 
+interface IssueDraft {
+  title: string;
+  description: string;
+  componentDefinitionId: string;
+  relatedPartInstanceId: string;
+  relatedMaintenancePlanId: string;
+  priority: Issue['priority'];
+  identifiedDate: string;
+  identifiedOdometerKm: string;
+  observations: string;
+}
+
+const issueStatusLabels: Record<Issue['status'], string> = {
+  identified: 'Identificado',
+  pending: 'Pendente',
+  in_progress: 'Em andamento',
+  postponed: 'Adiado',
+  resolved: 'Resolvido',
+  ignored: 'Não será feito'
+};
+
+const emptyIssueDraft = (odometer: number): IssueDraft => ({
+  title: '',
+  description: '',
+  componentDefinitionId: '',
+  relatedPartInstanceId: '',
+  relatedMaintenancePlanId: '',
+  priority: 'medium',
+  identifiedDate: todayISO(),
+  identifiedOdometerKm: String(odometer),
+  observations: ''
+});
+
 function IssuesList() {
-  const { data } = useData();
+  const { data, saveIssue, setIssueStatus } = useData();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Issue>();
+  const [draft, setDraft] = useState<IssueDraft>(() =>
+    emptyIssueDraft(data.vehicle.currentOdometer)
+  );
+  const [confirmStatus, setConfirmStatus] = useState<Issue['status']>();
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const openIssue = (issue?: Issue) => {
+    setSelected(issue);
+    setDraft(
+      issue
+        ? {
+            title: issue.title,
+            description: issue.description,
+            componentDefinitionId: issue.componentDefinitionId ?? '',
+            relatedPartInstanceId: issue.relatedPartInstanceIds?.[0] ?? '',
+            relatedMaintenancePlanId: issue.relatedMaintenancePlanId ?? '',
+            priority: issue.priority,
+            identifiedDate: issue.identifiedDate,
+            identifiedOdometerKm:
+              issue.identifiedOdometerKm === undefined ? '' : String(issue.identifiedOdometerKm),
+            observations: issue.observations
+          }
+        : emptyIssueDraft(data.vehicle.currentOdometer)
+    );
+    setConfirmStatus(undefined);
+    setError('');
+    setOpen(true);
+  };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await saveIssue({
+        id: selected?.id,
+        title: draft.title,
+        description: draft.description,
+        componentDefinitionId: draft.componentDefinitionId || undefined,
+        relatedPartInstanceIds: draft.relatedPartInstanceId
+          ? [draft.relatedPartInstanceId]
+          : undefined,
+        relatedMaintenancePlanId: draft.relatedMaintenancePlanId || undefined,
+        priority: draft.priority,
+        status: selected?.status ?? 'identified',
+        identifiedDate: draft.identifiedDate,
+        identifiedOdometerKm:
+          draft.identifiedOdometerKm === '' ? undefined : Number(draft.identifiedOdometerKm),
+        observations: draft.observations
+      });
+      setOpen(false);
+      toast(selected ? 'Problema atualizado.' : 'Problema registrado.');
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error ? submitError.message : 'Não foi possível salvar o problema.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+  const transition = async (status: Issue['status']) => {
+    if (!selected) return;
+    setSaving(true);
+    setError('');
+    try {
+      await setIssueStatus(selected.id, status);
+      setSelected({
+        ...selected,
+        status,
+        resolvedDate: status === 'resolved' ? todayISO() : undefined
+      });
+      setConfirmStatus(undefined);
+      toast(`Problema marcado como ${issueStatusLabels[status].toLocaleLowerCase('pt-BR')}.`);
+      if (status === 'resolved' || status === 'ignored') setOpen(false);
+    } catch (transitionError) {
+      setError(
+        transitionError instanceof Error
+          ? transitionError.message
+          : 'Não foi possível atualizar o problema.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+  const relatedParts = data.parts.filter(
+    (part) =>
+      !draft.componentDefinitionId || part.componentDefinitionId === draft.componentDefinitionId
+  );
+  const correctivePlans = data.maintenancePlans.filter((plan) => plan.type === 'corrective');
+
   return (
-    <div className="data-list">
-      {data.issues.map((issue) => (
-        <Card className="data-row" key={issue.id}>
-          <span className="row-icon danger">
-            <AlertTriangle />
-          </span>
-          <div className="data-main">
-            <div>
-              <h3>{issue.title}</h3>
-              <Badge
-                tone={
-                  issue.priority === 'high' || issue.priority === 'urgent' ? 'danger' : 'warning'
-                }
+    <>
+      <div className="section-toolbar">
+        <div>
+          <h2>Problemas</h2>
+          <p>Registre defeitos e acompanhe cada decisão até a resolução.</p>
+        </div>
+        <Button onClick={() => openIssue()}>
+          <Plus />
+          Novo problema
+        </Button>
+      </div>
+      {data.issues.length ? (
+        <div className="data-list">
+          {data.issues.map((issue) => (
+            <Card className="data-row" key={issue.id}>
+              <span
+                className={`row-icon ${issue.status === 'resolved' || issue.status === 'ignored' ? 'success' : 'danger'}`}
               >
-                {issue.priority === 'high' ? 'Prioridade alta' : issue.priority}
-              </Badge>
-            </div>
-            <p>{issue.description}</p>
-            <div className="meta-row">
-              <span>
-                <CalendarCheck />
-                {formatDate(issue.identifiedDate)}
+                <AlertTriangle />
               </span>
-              <span>{getComponent(issue.componentDefinitionId)?.name}</span>
+              <div className="data-main">
+                <div>
+                  <h3>{issue.title}</h3>
+                  <Badge
+                    tone={
+                      issue.status === 'resolved' || issue.status === 'ignored'
+                        ? 'success'
+                        : issue.priority === 'high' || issue.priority === 'urgent'
+                          ? 'danger'
+                          : 'warning'
+                    }
+                  >
+                    {issueStatusLabels[issue.status]}
+                  </Badge>
+                </div>
+                <p>{issue.description}</p>
+                <div className="meta-row">
+                  <span>
+                    <CalendarCheck />
+                    {formatDate(issue.identifiedDate)}
+                  </span>
+                  <span>{getComponent(issue.componentDefinitionId)?.name ?? 'Sem componente'}</span>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                aria-label={`Abrir problema ${issue.title}`}
+                onClick={() => openIssue(issue)}
+              >
+                Abrir
+              </Button>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="Nenhum problema registrado"
+          description="Registre um problema para começar o acompanhamento."
+        />
+      )}
+      <Modal
+        open={open}
+        onClose={() => !saving && setOpen(false)}
+        title={selected ? selected.title : 'Novo problema'}
+        size="wide"
+      >
+        <form onSubmit={submit}>
+          {selected && (
+            <div className="issue-status-panel">
+              <div>
+                <span>Estado atual</span>
+                <Badge>{issueStatusLabels[selected.status]}</Badge>
+              </div>
+              <div className="issue-transition-actions">
+                {!['resolved', 'ignored'].includes(selected.status) && (
+                  <>
+                    {selected.status !== 'in_progress' && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => transition('in_progress')}
+                      >
+                        Iniciar
+                      </Button>
+                    )}
+                    {selected.status !== 'postponed' && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => transition('postponed')}
+                      >
+                        Adiar
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setConfirmStatus('resolved')}
+                    >
+                      Resolver
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setConfirmStatus('ignored')}
+                    >
+                      Não será feito
+                    </Button>
+                  </>
+                )}
+                {['resolved', 'ignored'].includes(selected.status) && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => transition('identified')}
+                  >
+                    Reabrir
+                  </Button>
+                )}
+              </div>
+              {confirmStatus && (
+                <div className="issue-confirmation" role="alert">
+                  <b>
+                    {confirmStatus === 'resolved'
+                      ? 'Confirmar resolução do problema?'
+                      : 'Confirmar que este problema não será executado?'}
+                  </b>
+                  <p>Esta decisão ficará registrada no histórico.</p>
+                  <div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setConfirmStatus(undefined)}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => transition(confirmStatus)}
+                    >
+                      Confirmar
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
+          )}
+          <div className="form-grid">
+            <Input
+              className="full"
+              label="Título"
+              required
+              value={draft.title}
+              onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+            />
+            <Textarea
+              className="full"
+              label="Descrição"
+              required
+              value={draft.description}
+              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            />
+            <Select
+              label="Prioridade"
+              value={draft.priority}
+              onChange={(event) =>
+                setDraft({ ...draft, priority: event.target.value as Issue['priority'] })
+              }
+            >
+              <option value="low">Baixa</option>
+              <option value="medium">Média</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </Select>
+            <Select
+              label="Componente"
+              value={draft.componentDefinitionId}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  componentDefinitionId: event.target.value,
+                  relatedPartInstanceId: ''
+                })
+              }
+            >
+              <option value="">Sem componente</option>
+              {SANDERO_COMPONENTS.map((component) => (
+                <option value={component.id} key={component.id}>
+                  {component.system} — {component.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Peça relacionada"
+              value={draft.relatedPartInstanceId}
+              onChange={(event) =>
+                setDraft({ ...draft, relatedPartInstanceId: event.target.value })
+              }
+            >
+              <option value="">Sem peça relacionada</option>
+              {relatedParts.map((part) => (
+                <option value={part.id} key={part.id}>
+                  {part.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Manutenção corretiva"
+              value={draft.relatedMaintenancePlanId}
+              onChange={(event) =>
+                setDraft({ ...draft, relatedMaintenancePlanId: event.target.value })
+              }
+            >
+              <option value="">Sem manutenção relacionada</option>
+              {correctivePlans.map((plan) => (
+                <option value={plan.id} key={plan.id}>
+                  {plan.title}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Data identificada"
+              type="date"
+              required
+              value={draft.identifiedDate}
+              onChange={(event) => setDraft({ ...draft, identifiedDate: event.target.value })}
+            />
+            <Input
+              label="KM identificado"
+              type="number"
+              min="0"
+              value={draft.identifiedOdometerKm}
+              onChange={(event) => setDraft({ ...draft, identifiedOdometerKm: event.target.value })}
+            />
+            <Textarea
+              className="full"
+              label="Observações"
+              value={draft.observations}
+              onChange={(event) => setDraft({ ...draft, observations: event.target.value })}
+            />
           </div>
-          <Button variant="secondary">Abrir</Button>
-        </Card>
-      ))}
-    </div>
+          {error && (
+            <p className="form-submit-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="form-actions">
+            <Button type="button" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar problema'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
   );
 }

@@ -129,6 +129,100 @@ test('componente pode sair e voltar ao estado não aplicável', async ({ page })
   expect(state).toMatchObject({ state: 'notApplicable' });
 });
 
+test('problema pode ser criado, editado e resolvido com confirmação', async ({ page }) => {
+  await page.goto('./#/maintenance?tab=issues');
+  await page.getByRole('button', { name: 'Novo problema' }).click();
+  await page.getByLabel('Título').fill('Vazamento próximo ao motor');
+  await page.getByLabel('Descrição').fill('Há marcas de fluido após estacionar.');
+  await page.getByLabel('Prioridade').selectOption('high');
+  await page.getByLabel('Componente').selectOption('engine-oil');
+  await page.getByRole('button', { name: 'Salvar problema' }).click();
+  await expect(page.getByText('Problema registrado.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Abrir problema Vazamento próximo ao motor' }).click();
+  await page.getByLabel('Descrição').fill('Há marcas de óleo após estacionar.');
+  await page.getByRole('button', { name: 'Salvar problema' }).click();
+  await expect(page.getByText('Problema atualizado.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Abrir problema Vazamento próximo ao motor' }).click();
+  await page.getByRole('button', { name: 'Iniciar' }).click();
+  await page.getByRole('button', { name: 'Resolver' }).click();
+  await expect(page.getByText('Confirmar resolução do problema?')).toBeVisible();
+  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(page.getByText(/marcado como resolvido/i)).toBeVisible();
+  const issue = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return saved.issues.find((item: { title: string }) => item.title.includes('Vazamento'));
+  });
+  expect(issue).toMatchObject({ status: 'resolved', componentDefinitionId: 'engine-oil' });
+  expect(issue.resolvedDate).toBeTruthy();
+});
+
+test('inspeção tem resultado próprio e cria problema sem trocar peça', async ({ page }) => {
+  await page.goto('./#/maintenance?tab=inspections');
+  await expect(page.getByRole('heading', { name: 'Inspecionar freios dianteiros' })).toBeVisible();
+  await page.getByRole('link', { name: 'Ver detalhes' }).click();
+  await page.getByRole('button', { name: 'Concluir manutenção' }).click();
+  await expect(page.getByRole('heading', { name: 'Resultado da inspeção' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ações de peças' })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Resultado', exact: true }).selectOption('problem');
+  await page.getByLabel('Observações da inspeção').fill('Pastilhas próximas do limite.');
+  await page.getByLabel('Criar problema a partir deste resultado').check();
+  await page.getByRole('button', { name: 'Confirmar conclusão' }).click();
+  await expect(page.getByText(/próximo ciclo recalculado/i)).toBeVisible();
+  const result = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    const occurrence = saved.occurrences[0];
+    const componentState = saved.componentStates.find(
+      (item: { componentDefinitionId: string }) => item.componentDefinitionId === 'front-brake-pads'
+    );
+    return {
+      occurrence,
+      componentState,
+      part: saved.parts.find((item: { id: string }) => item.id === 'part-front-brake-pads'),
+      issue: saved.issues.find(
+        (item: { relatedMaintenanceOccurrenceId?: string }) =>
+          item.relatedMaintenanceOccurrenceId === occurrence.id
+      )
+    };
+  });
+  expect(result.occurrence).toMatchObject({
+    inspectionResult: 'problem',
+    partActions: [{ action: 'inspected', partInstanceId: 'part-front-brake-pads' }]
+  });
+  expect(result.componentState.currentPartInstanceId).toBe('part-front-brake-pads');
+  expect(result.part.status).toBe('installed');
+  expect(result.issue).toMatchObject({ priority: 'high', status: 'identified' });
+
+  await page.getByRole('button', { name: 'Concluir manutenção' }).click();
+  const resolveIssue = page.getByLabel(/Marcar “Resultado da inspeção:/);
+  await expect(resolveIssue).toBeVisible();
+  await resolveIssue.check();
+  await page.getByRole('button', { name: 'Confirmar conclusão' }).click();
+  const resolvedStatus = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('carango-demo-data-v1')!);
+    return saved.issues.find((item: { title: string }) =>
+      item.title.startsWith('Resultado da inspeção:')
+    ).status;
+  });
+  expect(resolvedStatus).toBe('resolved');
+});
+
+test('manutenção pendente aparece na aba e pode ser iniciada', async ({ page }) => {
+  await page.goto('./#/maintenance/new');
+  await page.getByLabel('Título').fill('Avaliar vazamento manual');
+  await page.getByLabel('Tipo').selectOption('corrective');
+  await page.getByLabel('Estado inicial').selectOption('pending');
+  await page.getByLabel('Recorrência').selectOption('none');
+  await page.getByRole('button', { name: 'Criar manutenção' }).click();
+  await page.getByRole('tab', { name: /Pendentes/ }).click();
+  await expect(page.getByRole('heading', { name: 'Avaliar vazamento manual' })).toBeVisible();
+  await page.getByRole('link', { name: 'Ver detalhes' }).click();
+  await page.getByRole('button', { name: 'Iniciar' }).click();
+  await expect(page.getByText('Manutenção iniciada.')).toBeVisible();
+  await expect(page.getByText('Em andamento')).toBeVisible();
+});
+
 test('menu mobile abre por botão', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Fluxo exclusivo do projeto mobile');
   await page.getByRole('button', { name: 'Abrir menu' }).click();

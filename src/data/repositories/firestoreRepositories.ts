@@ -79,6 +79,7 @@ export interface MaintenanceCompletionWrite {
   parts: PartInstance[];
   componentStates: ComponentState[];
   warranty?: Warranty;
+  issues: Issue[];
   alerts: AlertItem[];
   removedAlertIds: string[];
 }
@@ -98,6 +99,7 @@ export async function saveMaintenanceCompletion(
   input.parts.forEach((part) => setValue(`${vehiclePath}/parts`, part));
   input.componentStates.forEach((state) => setValue(`${vehiclePath}/componentStates`, state));
   if (input.warranty) setValue(`${vehiclePath}/warranties`, input.warranty);
+  input.issues.forEach((issue) => setValue(`${vehiclePath}/issues`, issue));
   input.alerts.forEach((alert) => setValue(`${vehiclePath}/alertStates`, alert));
   input.removedAlertIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/alertStates/${id}`)));
   await batch.commit();
@@ -127,6 +129,42 @@ export async function saveComponentStateChange(
   removedAlertIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/alertStates/${id}`)));
   await batch.commit();
 }
+
+async function saveAuditedEntityWithAlerts<T extends { id: string }>(
+  db: Firestore,
+  path: string,
+  value: T,
+  alerts: AlertItem[],
+  removedAlertIds: string[]
+) {
+  const batch = writeBatch(db);
+  const reference = doc(collection(db, path).withConverter(createConverter<T>()), value.id);
+  batch.set(reference, value);
+  alerts.forEach((alert) => {
+    const alertRef = doc(
+      collection(db, `${vehiclePath}/alertStates`).withConverter(createConverter<AlertItem>()),
+      alert.id
+    );
+    batch.set(alertRef, alert);
+  });
+  removedAlertIds.forEach((id) => batch.delete(doc(db, `${vehiclePath}/alertStates/${id}`)));
+  await batch.commit();
+}
+
+export const saveIssueChange = (
+  db: Firestore,
+  issue: Issue,
+  alerts: AlertItem[],
+  removedAlertIds: string[]
+) => saveAuditedEntityWithAlerts(db, `${vehiclePath}/issues`, issue, alerts, removedAlertIds);
+
+export const saveMaintenancePlanStateChange = (
+  db: Firestore,
+  plan: MaintenancePlan,
+  alerts: AlertItem[],
+  removedAlertIds: string[]
+) =>
+  saveAuditedEntityWithAlerts(db, `${vehiclePath}/maintenancePlans`, plan, alerts, removedAlertIds);
 
 export const createRepositories = (db: Firestore) => ({
   vehicles: new FirestoreRepository<Vehicle>(db, 'vehicles'),

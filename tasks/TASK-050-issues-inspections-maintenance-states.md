@@ -1,6 +1,6 @@
 # TASK-050 — Completar problemas, inspeções e estados de manutenção
 
-**Status:** TODO
+**Status:** DONE
 
 **GAPs:** GAP-004, GAP-005, GAP-012, GAP-013
 
@@ -16,14 +16,14 @@ Entregar CRUD e fluxos funcionais para problemas e inspeções, incluindo pendê
 
 ## Entregas
 
-- CRUD e transições de estado de problemas
-- Associação com componente, peça e manutenção corretiva
-- Criação e conclusão de inspeções independentes
-- Estado `pending` no domínio, cálculos e UI
-- Abas Pendentes e Inspeções com contadores reais
+- [x] CRUD e transições de estado de problemas
+- [x] Associação com componente, peça e manutenção corretiva
+- [x] Criação e conclusão de inspeções independentes
+- [x] Estado `pending` no domínio, cálculos e UI
+- [x] Abas Pendentes e Inspeções com contadores reais
 
 ## Critérios de aceite
 
-- Nenhum botão de problema ou inspeção fica sem ação
-- Inspeção não altera peça nem reinicia ciclo de substituição
-- Resolução de problema exige confirmação explícita
+- [x] Nenhum botão de problema ou inspeção fica sem ação
+- [x] Inspeção não altera peça nem reinicia ciclo de substituição
+- [x] Resolução de problema exige confirmação explícita

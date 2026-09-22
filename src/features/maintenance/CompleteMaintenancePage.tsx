@@ -83,6 +83,12 @@ export function CompleteMaintenancePage() {
       ? [newPartAction(componentDefinitionId, requestedAction as PartActionDraft['action'])]
       : [];
   });
+  const [inspectionResult, setInspectionResult] = useState<
+    'satisfactory' | 'attention' | 'problem'
+  >('satisfactory');
+  const [inspectionObservations, setInspectionObservations] = useState('');
+  const [createIssueFromInspection, setCreateIssueFromInspection] = useState(false);
+  const [resolveIssueIds, setResolveIssueIds] = useState<string[]>([]);
   const [hasWarranty, setHasWarranty] = useState(false);
   const [warrantyEndDate, setWarrantyEndDate] = useState('');
   const [warrantyEndKm, setWarrantyEndKm] = useState('');
@@ -104,6 +110,10 @@ export function CompleteMaintenancePage() {
     setPartActions((current) =>
       current.map((action) => (action.id === id ? { ...action, ...patch } : action))
     );
+  const linkedIssues = data.issues.filter(
+    (issue) =>
+      issue.relatedMaintenancePlanId === plan.id && !['resolved', 'ignored'].includes(issue.status)
+  );
   const preview = nextCycle(plan, Number(km || 0), date);
   const detailedPartsTotalCents = partActions.reduce(
     (total, action) => total + currencyToCents(action.purchasePrice),
@@ -182,7 +192,7 @@ export function CompleteMaintenancePage() {
         workshopOrProvider: provider.trim() || undefined,
         observations: observations.trim(),
         expense,
-        partActions: partActions.map((action) => ({
+        partActions: (plan.type === 'inspection' ? [] : partActions).map((action) => ({
           componentDefinitionId: action.componentDefinitionId,
           action: action.action,
           observations: action.observations.trim() || undefined,
@@ -209,7 +219,16 @@ export function CompleteMaintenancePage() {
               documentUrl: warrantyUrl.trim() || undefined,
               observations: warrantyObservations.trim()
             }
-          : undefined
+          : undefined,
+        inspection:
+          plan.type === 'inspection'
+            ? {
+                result: inspectionResult,
+                observations: inspectionObservations,
+                createIssue: createIssueFromInspection
+              }
+            : undefined,
+        resolveIssueIds
       });
       toast('Manutenção concluída e próximo ciclo recalculado.');
       navigate(`/maintenance/${plan.id}`, { replace: true });
@@ -280,232 +299,276 @@ export function CompleteMaintenancePage() {
               value={observations}
               onChange={(e) => setObservations(e.target.value)}
             />
-            <section className="completion-subsection full" aria-labelledby="part-actions-title">
-              <div className="completion-subsection-heading">
-                <div>
-                  <h3 id="part-actions-title">Ações de peças</h3>
-                  <p>Adicione quantas ações foram realmente executadas nesta manutenção.</p>
+            {plan.type === 'inspection' && (
+              <section className="completion-subsection full" aria-labelledby="inspection-title">
+                <div className="completion-subsection-heading">
+                  <div>
+                    <h3 id="inspection-title">Resultado da inspeção</h3>
+                    <p>A inspeção registra o estado observado sem substituir a peça.</p>
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() =>
-                    setPartActions((current) => {
-                      const state = data.componentStates.find(
-                        (item) => item.componentDefinitionId === plan.componentDefinitionId
-                      );
-                      return [
-                        ...current,
-                        newPartAction(
-                          plan.componentDefinitionId,
-                          state?.currentPartInstanceId ? 'inspected' : 'installed'
-                        )
-                      ];
-                    })
-                  }
-                >
-                  <Plus />
-                  Adicionar ação
-                </Button>
-              </div>
-              {partActions.map((action, index) => {
-                const actionComponentState = data.componentStates.find(
-                  (state) => state.componentDefinitionId === action.componentDefinitionId
-                );
-                const currentPart = data.parts.find(
-                  (part) => part.id === actionComponentState?.currentPartInstanceId
-                );
-                const createsPart = action.action === 'installed' || action.action === 'replaced';
-                return (
-                  <Card className="part-action-editor" key={action.id}>
-                    <div className="part-action-title">
-                      <b>Ação {index + 1}</b>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        aria-label={`Remover ação ${index + 1}`}
-                        onClick={() =>
-                          setPartActions((current) =>
-                            current.filter((item) => item.id !== action.id)
+                <div className="form-grid">
+                  <Select
+                    label="Resultado"
+                    value={inspectionResult}
+                    onChange={(event) =>
+                      setInspectionResult(
+                        event.target.value as 'satisfactory' | 'attention' | 'problem'
+                      )
+                    }
+                  >
+                    <option value="satisfactory">Satisfatório</option>
+                    <option value="attention">Requer atenção</option>
+                    <option value="problem">Problema identificado</option>
+                  </Select>
+                  <Textarea
+                    className="full"
+                    label="Observações da inspeção"
+                    value={inspectionObservations}
+                    onChange={(event) => setInspectionObservations(event.target.value)}
+                  />
+                  {inspectionResult !== 'satisfactory' && (
+                    <label className="checkbox-field full">
+                      <input
+                        type="checkbox"
+                        checked={createIssueFromInspection}
+                        onChange={(event) => setCreateIssueFromInspection(event.target.checked)}
+                      />
+                      Criar problema a partir deste resultado
+                    </label>
+                  )}
+                </div>
+              </section>
+            )}
+            {plan.type !== 'inspection' && (
+              <section className="completion-subsection full" aria-labelledby="part-actions-title">
+                <div className="completion-subsection-heading">
+                  <div>
+                    <h3 id="part-actions-title">Ações de peças</h3>
+                    <p>Adicione quantas ações foram realmente executadas nesta manutenção.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      setPartActions((current) => {
+                        const state = data.componentStates.find(
+                          (item) => item.componentDefinitionId === plan.componentDefinitionId
+                        );
+                        return [
+                          ...current,
+                          newPartAction(
+                            plan.componentDefinitionId,
+                            state?.currentPartInstanceId ? 'inspected' : 'installed'
                           )
-                        }
-                      >
-                        <Trash2 />
-                        Remover
-                      </Button>
-                    </div>
-                    <div className="form-grid">
-                      <Select
-                        label="Componente"
-                        required
-                        value={action.componentDefinitionId}
-                        onChange={(event) =>
-                          updatePartAction(
-                            action.id,
-                            (() => {
-                              const state = data.componentStates.find(
-                                (item) => item.componentDefinitionId === event.target.value
-                              );
-                              return {
-                                componentDefinitionId: event.target.value,
-                                action: state?.currentPartInstanceId ? 'inspected' : 'installed',
-                                essentialRemovalConfirmed: false
-                              };
-                            })()
-                          )
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {SANDERO_COMPONENTS.map((item) => (
-                          <option value={item.id} key={item.id}>
-                            {item.system} — {item.name}
-                          </option>
-                        ))}
-                      </Select>
-                      <Select
-                        label="Ação executada"
-                        value={action.action}
-                        onChange={(event) =>
-                          updatePartAction(action.id, {
-                            action: event.target.value as PartActionDraft['action'],
-                            essentialRemovalConfirmed: false
-                          })
-                        }
-                      >
-                        {!currentPart && <option value="installed">Instalar</option>}
-                        {currentPart && <option value="replaced">Substituir</option>}
-                        {currentPart && <option value="removed">Remover/descartar</option>}
-                        {currentPart && <option value="inspected">Inspecionar</option>}
-                        {currentPart && <option value="repaired">Reparar</option>}
-                      </Select>
-                      {action.componentDefinitionId && (
-                        <p className="part-action-context full">
-                          {currentPart
-                            ? `Peça atual: ${currentPart.name}`
-                            : 'Este componente não possui peça instalada.'}
-                        </p>
-                      )}
-                      {action.action === 'removed' &&
-                        SANDERO_COMPONENTS.find((item) => item.id === action.componentDefinitionId)
-                          ?.isEssential && (
-                          <div className="essential-removal-warning full">
-                            <b>Atenção: componente essencial</b>
-                            <p>
-                              Esta remoção deixará o componente sem peça instalada e criará um
-                              alerta crítico. Nenhum item será mantido como estoque.
-                            </p>
-                            <label className="checkbox-field">
+                        ];
+                      })
+                    }
+                  >
+                    <Plus />
+                    Adicionar ação
+                  </Button>
+                </div>
+                {partActions.map((action, index) => {
+                  const actionComponentState = data.componentStates.find(
+                    (state) => state.componentDefinitionId === action.componentDefinitionId
+                  );
+                  const currentPart = data.parts.find(
+                    (part) => part.id === actionComponentState?.currentPartInstanceId
+                  );
+                  const createsPart = action.action === 'installed' || action.action === 'replaced';
+                  return (
+                    <Card className="part-action-editor" key={action.id}>
+                      <div className="part-action-title">
+                        <b>Ação {index + 1}</b>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          aria-label={`Remover ação ${index + 1}`}
+                          onClick={() =>
+                            setPartActions((current) =>
+                              current.filter((item) => item.id !== action.id)
+                            )
+                          }
+                        >
+                          <Trash2 />
+                          Remover
+                        </Button>
+                      </div>
+                      <div className="form-grid">
+                        <Select
+                          label="Componente"
+                          required
+                          value={action.componentDefinitionId}
+                          onChange={(event) =>
+                            updatePartAction(
+                              action.id,
+                              (() => {
+                                const state = data.componentStates.find(
+                                  (item) => item.componentDefinitionId === event.target.value
+                                );
+                                return {
+                                  componentDefinitionId: event.target.value,
+                                  action: state?.currentPartInstanceId ? 'inspected' : 'installed',
+                                  essentialRemovalConfirmed: false
+                                };
+                              })()
+                            )
+                          }
+                        >
+                          <option value="">Selecione</option>
+                          {SANDERO_COMPONENTS.map((item) => (
+                            <option value={item.id} key={item.id}>
+                              {item.system} — {item.name}
+                            </option>
+                          ))}
+                        </Select>
+                        <Select
+                          label="Ação executada"
+                          value={action.action}
+                          onChange={(event) =>
+                            updatePartAction(action.id, {
+                              action: event.target.value as PartActionDraft['action'],
+                              essentialRemovalConfirmed: false
+                            })
+                          }
+                        >
+                          {!currentPart && <option value="installed">Instalar</option>}
+                          {currentPart && <option value="replaced">Substituir</option>}
+                          {currentPart && <option value="removed">Remover/descartar</option>}
+                          {currentPart && <option value="inspected">Inspecionar</option>}
+                          {currentPart && <option value="repaired">Reparar</option>}
+                        </Select>
+                        {action.componentDefinitionId && (
+                          <p className="part-action-context full">
+                            {currentPart
+                              ? `Peça atual: ${currentPart.name}`
+                              : 'Este componente não possui peça instalada.'}
+                          </p>
+                        )}
+                        {action.action === 'removed' &&
+                          SANDERO_COMPONENTS.find(
+                            (item) => item.id === action.componentDefinitionId
+                          )?.isEssential && (
+                            <div className="essential-removal-warning full">
+                              <b>Atenção: componente essencial</b>
+                              <p>
+                                Esta remoção deixará o componente sem peça instalada e criará um
+                                alerta crítico. Nenhum item será mantido como estoque.
+                              </p>
+                              <label className="checkbox-field">
+                                <input
+                                  type="checkbox"
+                                  checked={action.essentialRemovalConfirmed}
+                                  onChange={(event) =>
+                                    updatePartAction(action.id, {
+                                      essentialRemovalConfirmed: event.target.checked
+                                    })
+                                  }
+                                />
+                                Confirmo a remoção desta peça essencial
+                              </label>
+                            </div>
+                          )}
+                        {createsPart && (
+                          <>
+                            <Input
+                              label="Nome da nova peça"
+                              required
+                              value={action.partName}
+                              onChange={(event) =>
+                                updatePartAction(action.id, { partName: event.target.value })
+                              }
+                            />
+                            <Input
+                              label="Custo da peça (R$)"
+                              inputMode="decimal"
+                              value={action.purchasePrice}
+                              onChange={(event) =>
+                                updatePartAction(action.id, { purchasePrice: event.target.value })
+                              }
+                            />
+                            <Input
+                              label="Marca"
+                              value={action.brand}
+                              onChange={(event) =>
+                                updatePartAction(action.id, { brand: event.target.value })
+                              }
+                            />
+                            <Input
+                              label="Modelo"
+                              value={action.model}
+                              onChange={(event) =>
+                                updatePartAction(action.id, { model: event.target.value })
+                              }
+                            />
+                            <Input
+                              label="Código"
+                              value={action.partCode}
+                              onChange={(event) =>
+                                updatePartAction(action.id, { partCode: event.target.value })
+                              }
+                            />
+                            <Select
+                              label="Condição"
+                              value={action.conditionAtInstall}
+                              onChange={(event) =>
+                                updatePartAction(action.id, {
+                                  conditionAtInstall: event.target
+                                    .value as PartActionDraft['conditionAtInstall']
+                                })
+                              }
+                            >
+                              <option value="new">Nova</option>
+                              <option value="used">Usada</option>
+                              <option value="reconditioned">Recondicionada</option>
+                              <option value="unknown">Desconhecida</option>
+                            </Select>
+                            <label className="checkbox-field full">
                               <input
                                 type="checkbox"
-                                checked={action.essentialRemovalConfirmed}
+                                checked={action.priorLifeKnown}
                                 onChange={(event) =>
                                   updatePartAction(action.id, {
-                                    essentialRemovalConfirmed: event.target.checked
+                                    priorLifeKnown: event.target.checked
                                   })
                                 }
                               />
-                              Confirmo a remoção desta peça essencial
+                              Vida útil anterior conhecida
                             </label>
-                          </div>
-                        )}
-                      {createsPart && (
-                        <>
-                          <Input
-                            label="Nome da nova peça"
-                            required
-                            value={action.partName}
-                            onChange={(event) =>
-                              updatePartAction(action.id, { partName: event.target.value })
-                            }
-                          />
-                          <Input
-                            label="Custo da peça (R$)"
-                            inputMode="decimal"
-                            value={action.purchasePrice}
-                            onChange={(event) =>
-                              updatePartAction(action.id, { purchasePrice: event.target.value })
-                            }
-                          />
-                          <Input
-                            label="Marca"
-                            value={action.brand}
-                            onChange={(event) =>
-                              updatePartAction(action.id, { brand: event.target.value })
-                            }
-                          />
-                          <Input
-                            label="Modelo"
-                            value={action.model}
-                            onChange={(event) =>
-                              updatePartAction(action.id, { model: event.target.value })
-                            }
-                          />
-                          <Input
-                            label="Código"
-                            value={action.partCode}
-                            onChange={(event) =>
-                              updatePartAction(action.id, { partCode: event.target.value })
-                            }
-                          />
-                          <Select
-                            label="Condição"
-                            value={action.conditionAtInstall}
-                            onChange={(event) =>
-                              updatePartAction(action.id, {
-                                conditionAtInstall: event.target
-                                  .value as PartActionDraft['conditionAtInstall']
-                              })
-                            }
-                          >
-                            <option value="new">Nova</option>
-                            <option value="used">Usada</option>
-                            <option value="reconditioned">Recondicionada</option>
-                            <option value="unknown">Desconhecida</option>
-                          </Select>
-                          <label className="checkbox-field full">
-                            <input
-                              type="checkbox"
-                              checked={action.priorLifeKnown}
+                            <Textarea
+                              className="full"
+                              label="Estado inicial da peça"
+                              value={action.initialConditionNotes}
                               onChange={(event) =>
                                 updatePartAction(action.id, {
-                                  priorLifeKnown: event.target.checked
+                                  initialConditionNotes: event.target.value
                                 })
                               }
                             />
-                            Vida útil anterior conhecida
-                          </label>
-                          <Textarea
-                            className="full"
-                            label="Estado inicial da peça"
-                            value={action.initialConditionNotes}
-                            onChange={(event) =>
-                              updatePartAction(action.id, {
-                                initialConditionNotes: event.target.value
-                              })
-                            }
-                          />
-                        </>
-                      )}
-                      <Textarea
-                        className="full"
-                        label={
-                          action.action === 'removed' || action.action === 'replaced'
-                            ? 'Motivo e observações'
-                            : 'Observações da ação'
-                        }
-                        value={action.observations}
-                        onChange={(event) =>
-                          updatePartAction(action.id, { observations: event.target.value })
-                        }
-                      />
-                    </div>
-                  </Card>
-                );
-              })}
-              {!partActions.length && (
-                <p className="part-action-empty">Nenhuma ação de peça adicionada.</p>
-              )}
-            </section>
+                          </>
+                        )}
+                        <Textarea
+                          className="full"
+                          label={
+                            action.action === 'removed' || action.action === 'replaced'
+                              ? 'Motivo e observações'
+                              : 'Observações da ação'
+                          }
+                          value={action.observations}
+                          onChange={(event) =>
+                            updatePartAction(action.id, { observations: event.target.value })
+                          }
+                        />
+                      </div>
+                    </Card>
+                  );
+                })}
+                {!partActions.length && (
+                  <p className="part-action-empty">Nenhuma ação de peça adicionada.</p>
+                )}
+              </section>
+            )}
             <Input
               label="Outros custos de peças/insumos (R$)"
               inputMode="decimal"
@@ -542,6 +605,32 @@ export function CompleteMaintenancePage() {
               />
             )}
           </div>
+          {linkedIssues.length > 0 && (
+            <section className="completion-subsection linked-issues-section">
+              <div className="completion-subsection-heading">
+                <div>
+                  <h3>Problemas relacionados</h3>
+                  <p>Escolha quais problemas esta manutenção resolveu.</p>
+                </div>
+              </div>
+              {linkedIssues.map((issue) => (
+                <label className="checkbox-field" key={issue.id}>
+                  <input
+                    type="checkbox"
+                    checked={resolveIssueIds.includes(issue.id)}
+                    onChange={(event) =>
+                      setResolveIssueIds((current) =>
+                        event.target.checked
+                          ? [...current, issue.id]
+                          : current.filter((id) => id !== issue.id)
+                      )
+                    }
+                  />
+                  Marcar “{issue.title}” como resolvido
+                </label>
+              ))}
+            </section>
+          )}
           <div className="completion-preview completion-totals">
             <b>
               Total calculado:{' '}

@@ -64,6 +64,11 @@ describe('manutenção', () => {
       calculateMaintenanceStatus({ isActive: true, status: 'ok', nextDueKm: 148500 }, input)
     ).toBe('upcoming');
   });
+  it('preserva pendência manual sem tratá-la como em dia', () => {
+    expect(calculateMaintenanceStatus({ isActive: true, status: 'pending' }, input)).toBe(
+      'pending'
+    );
+  });
   it('calcula ciclo combinado a partir da execução real', () => {
     expect(
       nextCycle(

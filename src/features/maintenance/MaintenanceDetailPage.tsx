@@ -4,13 +4,24 @@ import { useData } from '../../app/providers/DataProvider';
 import { getComponent } from '../../catalog/components/sandero';
 import { PageHeader } from '../../components/layout/AppShell';
 import { Badge, Button, Card } from '../../components/ui';
+import { useToast } from '../../components/ui/Toast';
 import { formatDate, formatKm } from '../../lib/format';
 import { statusTone } from './MaintenancePage';
+
+const statusLabels = {
+  overdue: 'Vencida',
+  upcoming: 'Próxima',
+  ok: 'Em dia',
+  pending: 'Pendente',
+  in_progress: 'Em andamento',
+  archived: 'Arquivada'
+} as const;
 
 export function MaintenanceDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data } = useData();
+  const { data, setMaintenanceStatus } = useData();
+  const { toast } = useToast();
   const plan = data.maintenancePlans.find((item) => item.id === id);
 
   if (!plan) {
@@ -41,6 +52,22 @@ export function MaintenanceDetailPage() {
               <CheckCircle2 />
               Concluir manutenção
             </Button>
+            {plan.status !== 'archived' && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  const nextStatus = plan.status === 'pending' ? 'in_progress' : 'pending';
+                  await setMaintenanceStatus(plan.id, nextStatus);
+                  toast(
+                    nextStatus === 'in_progress'
+                      ? 'Manutenção iniciada.'
+                      : 'Manutenção marcada como pendente.'
+                  );
+                }}
+              >
+                {plan.status === 'pending' ? 'Iniciar' : 'Marcar pendente'}
+              </Button>
+            )}
           </>
         }
       />
@@ -54,13 +81,7 @@ export function MaintenanceDetailPage() {
               <span className="eyebrow">Estado atual</span>
               <h2>{plan.title}</h2>
             </div>
-            <Badge tone={statusTone(plan.status)}>
-              {plan.status === 'overdue'
-                ? 'Vencida'
-                : plan.status === 'upcoming'
-                  ? 'Próxima'
-                  : 'Em dia'}
-            </Badge>
+            <Badge tone={statusTone(plan.status)}>{statusLabels[plan.status]}</Badge>
           </div>
           <dl className="details">
             <div>

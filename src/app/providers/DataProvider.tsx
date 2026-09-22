@@ -15,6 +15,8 @@ import { getInitializedDataStore } from '../../data/firebase/config';
 import {
   createRepositories,
   saveComponentStateChange,
+  saveIssueChange,
+  saveMaintenancePlanStateChange,
   saveMaintenanceCompletion
 } from '../../data/repositories/firestoreRepositories';
 import { seedData } from '../../data/seed';
@@ -27,6 +29,7 @@ import {
   SCHEMA_VERSION,
   type AppData,
   type DocumentRecord,
+  type Issue,
   type MaintenanceCompletionInput,
   type MaintenanceOccurrence,
   type MaintenancePlan,
@@ -60,6 +63,7 @@ interface DataContextValue {
     > & {
       initialPerformedDate?: string;
       initialPerformedKm?: number;
+      initialStatus?: 'pending' | 'scheduled';
     }
   ) => string;
   completeMaintenance: (id: string, input: MaintenanceCompletionInput) => Promise<void>;
@@ -81,6 +85,26 @@ interface DataContextValue {
     >
   ) => Promise<void>;
   setComponentNotApplicable: (componentDefinitionId: string, value: boolean) => Promise<void>;
+  saveIssue: (
+    input: Pick<
+      Issue,
+      | 'title'
+      | 'description'
+      | 'componentDefinitionId'
+      | 'relatedPartInstanceIds'
+      | 'relatedMaintenancePlanId'
+      | 'priority'
+      | 'status'
+      | 'identifiedDate'
+      | 'identifiedOdometerKm'
+      | 'observations'
+    > & { id?: string }
+  ) => Promise<string>;
+  setIssueStatus: (id: string, status: Issue['status']) => Promise<void>;
+  setMaintenanceStatus: (
+    id: string,
+    status: Extract<MaintenancePlan['status'], 'pending' | 'in_progress'>
+  ) => Promise<void>;
   addDocument: (
     input: Pick<DocumentRecord, 'name' | 'type' | 'referenceYear' | 'dueDate' | 'amountCents'>
   ) => void;
@@ -307,11 +331,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const saveMaintenance: DataContextValue['saveMaintenance'] = (input) => {
     const planId = uid('maint');
     persist((current) => {
-      const { initialPerformedDate, initialPerformedKm, ...planInput } = input;
+      const { initialPerformedDate, initialPerformedKm, initialStatus, ...planInput } = input;
       const plan = {
         ...audit(),
         id: planId,
-        status: 'ok',
+        status:
+          initialStatus === 'pending' ||
+          (initialStatus === undefined &&
+            planInput.recurrenceType === 'none' &&
+            planInput.nextDueKm === undefined &&
+            planInput.nextDueDate === undefined)
+            ? 'pending'
+            : 'ok',
         isActive: true,
         ...planInput
       } as MaintenancePlan;
@@ -354,6 +385,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!plan) throw new Error('Plano de manutenção não encontrado.');
     if (!user?.demo && !database.current)
       throw new Error('O Firestore não está disponível para concluir esta manutenção.');
+    if (plan.type === 'inspection' && !input.inspection)
+      throw new Error('Informe o resultado da inspeção.');
+    if (plan.type === 'inspection' && input.partActions.length)
+      throw new Error('Uma inspeção não pode instalar, substituir ou remover peças.');
     if (input.warranty) {
       if (!input.warranty.endDate && input.warranty.endOdometerKm === undefined)
         throw new Error('A garantia precisa de um vencimento por data, KM ou ambos.');
@@ -472,6 +507,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
     });
 
+    if (plan.type === 'inspection' && plan.componentDefinitionId) {
+      const inspectedState = componentStates.find(
+        (item) => item.componentDefinitionId === plan.componentDefinitionId
+      );
+      occurrencePartActions.push({
+        id: uid('part-action'),
+        componentDefinitionId: plan.componentDefinitionId,
+        partInstanceId: inspectedState?.currentPartInstanceId,
+        action: 'inspected',
+        observations: input.inspection?.observations.trim() || undefined
+      });
+    }
+
     const occurrence: MaintenanceOccurrence = {
       ...audit(),
       id: occurrenceId,
@@ -482,7 +530,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       workshopOrProvider: input.workshopOrProvider,
       observations: input.observations,
       expense: input.expense,
-      partActions: occurrencePartActions
+      partActions: occurrencePartActions,
+      inspectionResult: input.inspection?.result,
+      inspectionObservations: input.inspection?.observations.trim() || undefined
     };
     const cycle = nextCycle(plan, input.odometerKm, input.performedDate);
     const updatedPlan: MaintenancePlan = {
@@ -512,11 +562,53 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }
       : undefined;
 
+    const resolvedIssues = current.issues
+      .filter((issue) => input.resolveIssueIds?.includes(issue.id))
+      .map((issue) => ({
+        ...issue,
+        status: 'resolved' as const,
+        resolvedDate: input.performedDate,
+        relatedMaintenanceOccurrenceId: occurrence.id,
+        revision: issue.revision + 1,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user?.email ?? 'local'
+      }));
+    const inspectionIssue: Issue | undefined =
+      input.inspection?.createIssue && input.inspection.result !== 'satisfactory'
+        ? {
+            ...audit(),
+            id: uid('issue'),
+            title: `Resultado da inspeção: ${plan.title}`,
+            description:
+              input.inspection.observations.trim() ||
+              'A inspeção identificou um ponto que precisa de acompanhamento.',
+            componentDefinitionId: plan.componentDefinitionId,
+            relatedPartInstanceIds: occurrencePartActions[0]?.partInstanceId
+              ? [occurrencePartActions[0].partInstanceId]
+              : undefined,
+            relatedMaintenancePlanId: plan.id,
+            relatedMaintenanceOccurrenceId: occurrence.id,
+            priority: input.inspection.result === 'problem' ? 'high' : 'medium',
+            status: 'identified',
+            identifiedDate: input.performedDate,
+            identifiedOdometerKm: input.odometerKm,
+            observations: input.inspection.observations.trim()
+          }
+        : undefined;
+    const changedIssues = [...resolvedIssues, ...(inspectionIssue ? [inspectionIssue] : [])];
+    const issues = [
+      ...(inspectionIssue ? [inspectionIssue] : []),
+      ...current.issues.map(
+        (issue) => resolvedIssues.find((updated) => updated.id === issue.id) ?? issue
+      )
+    ];
+
     const base = {
       ...current,
       parts,
       componentStates,
       occurrences: [occurrence, ...current.occurrences],
+      issues,
       warranties: warranty ? [warranty, ...current.warranties] : current.warranties,
       maintenancePlans: current.maintenancePlans.map((item) =>
         item.id === id ? updatedPlan : item
@@ -530,6 +622,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         parts: [...changedParts.values()],
         componentStates: [...changedStates.values()],
         warranty,
+        issues: changedIssues,
         alerts: next.alerts,
         removedAlertIds: current.alerts
           .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
@@ -611,6 +704,106 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
     setDataState(next);
   };
+  const saveIssue: DataContextValue['saveIssue'] = async (input) => {
+    const current = data;
+    const existing = input.id ? current.issues.find((issue) => issue.id === input.id) : undefined;
+    if (input.id && !existing) throw new Error('Problema não encontrado.');
+    if (!input.title.trim() || !input.description.trim() || !input.identifiedDate)
+      throw new Error('Informe título, descrição e data de identificação.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para salvar este problema.');
+    const issue: Issue = {
+      ...(existing ?? audit()),
+      id: existing?.id ?? uid('issue'),
+      title: input.title.trim(),
+      description: input.description.trim(),
+      componentDefinitionId: input.componentDefinitionId || undefined,
+      relatedPartInstanceIds: input.relatedPartInstanceIds?.filter(Boolean),
+      relatedMaintenancePlanId: input.relatedMaintenancePlanId || undefined,
+      priority: input.priority,
+      status: input.status,
+      identifiedDate: input.identifiedDate,
+      identifiedOdometerKm: input.identifiedOdometerKm,
+      resolvedDate:
+        input.status === 'resolved'
+          ? (existing?.resolvedDate ?? todayISO())
+          : input.status === 'ignored'
+            ? existing?.resolvedDate
+            : undefined,
+      observations: input.observations.trim(),
+      revision: existing ? existing.revision + 1 : 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    const base = {
+      ...current,
+      issues: existing
+        ? current.issues.map((item) => (item.id === issue.id ? issue : item))
+        : [issue, ...current.issues]
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    const removedAlertIds = current.alerts
+      .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+      .map((alert) => alert.id);
+    if (database.current)
+      await saveIssueChange(database.current, issue, next.alerts, removedAlertIds);
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+    return issue.id;
+  };
+  const setIssueStatus: DataContextValue['setIssueStatus'] = async (id, status) => {
+    const current = data;
+    const issue = current.issues.find((item) => item.id === id);
+    if (!issue) throw new Error('Problema não encontrado.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para atualizar este problema.');
+    const updated: Issue = {
+      ...issue,
+      status,
+      resolvedDate: status === 'resolved' ? todayISO() : undefined,
+      revision: issue.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    const base = {
+      ...current,
+      issues: current.issues.map((item) => (item.id === id ? updated : item))
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    const removedAlertIds = current.alerts
+      .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+      .map((alert) => alert.id);
+    if (database.current)
+      await saveIssueChange(database.current, updated, next.alerts, removedAlertIds);
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
+  const setMaintenanceStatus: DataContextValue['setMaintenanceStatus'] = async (id, status) => {
+    const current = data;
+    const plan = current.maintenancePlans.find((item) => item.id === id);
+    if (!plan) throw new Error('Plano de manutenção não encontrado.');
+    if (!user?.demo && !database.current)
+      throw new Error('O Firestore não está disponível para atualizar esta manutenção.');
+    const updated: MaintenancePlan = {
+      ...plan,
+      status,
+      revision: plan.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.email ?? 'local'
+    };
+    const base = {
+      ...current,
+      maintenancePlans: current.maintenancePlans.map((item) => (item.id === id ? updated : item))
+    };
+    const next = { ...base, alerts: mergeAlertState(deriveAlerts(base), current.alerts) };
+    const removedAlertIds = current.alerts
+      .filter((alert) => !next.alerts.some((item) => item.id === alert.id))
+      .map((alert) => alert.id);
+    if (database.current)
+      await saveMaintenancePlanStateChange(database.current, updated, next.alerts, removedAlertIds);
+    if (user?.demo) localStorage.setItem(storageKey, JSON.stringify(next));
+    setDataState(next);
+  };
   const addDocument: DataContextValue['addDocument'] = (input) =>
     persist((current) => {
       const document = {
@@ -666,6 +859,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       completeMaintenance,
       updatePart,
       setComponentNotApplicable,
+      saveIssue,
+      setIssueStatus,
+      setMaintenanceStatus,
       addDocument,
       markAlertSeen,
       snoozeAlert,
